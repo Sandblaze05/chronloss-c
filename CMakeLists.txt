@@ -70,3 +70,13 @@ target_link_libraries(chronloss PRIVATE
   glfw
   OpenGL::GL
 )
+
+# -----------------------
+# Copy Assets to Build Dir
+# -----------------------
+add_custom_command(TARGET chronloss POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/engine/assets"
+    "$<TARGET_FILE_DIR:chronloss>/engine/assets"
+    COMMENT "Copying assets to build directory..."
+)
