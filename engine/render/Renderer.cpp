@@ -80,7 +80,7 @@ void Renderer::onCursorPos(double xpos, double ypos) {
 
 	if (m_Orbiting) {
 		const float sensitivity = 0.0055f; // tune this for feel
-		m_Yaw -= static_cast<float>(dx) * sensitivity; // left -> turn right
+		m_Yaw += static_cast<float>(dx) * sensitivity; // left -> turn right
 		m_Pitch += static_cast<float>(dy) * sensitivity; // down -> go up
 
 		// clamp pitch to avoid gimbal flip
@@ -91,6 +91,29 @@ void Renderer::onCursorPos(double xpos, double ypos) {
 
 	m_LastMouseX = xpos;
 	m_LastMouseY = ypos;
+}
+
+void Renderer::getGroundAxes(float& forwardX, float& forwardZ,
+                             float& rightX, float& rightZ) const {
+    // View direction from camera to target based on yaw/pitch.
+    const float dirX = std::cos(m_Pitch) * std::cos(m_Yaw);
+    const float dirZ = std::cos(m_Pitch) * std::sin(m_Yaw);
+
+    // Camera looks toward the target, which is opposite the eye offset direction.
+    forwardX = -dirX;
+    forwardZ = -dirZ;
+
+    float fLen = std::sqrt(forwardX * forwardX + forwardZ * forwardZ);
+    if (fLen > 0.0001f) {
+        forwardX /= fLen;
+        forwardZ /= fLen;
+    } else {
+        forwardX = 0.0f;
+        forwardZ = -1.0f;
+    }
+
+    rightX = -forwardZ;
+    rightZ = forwardX;
 }
 
 void Renderer::init() {
@@ -200,6 +223,15 @@ void Renderer::init() {
 	// enable depth test so cube renders correctly
 	glEnable(GL_DEPTH_TEST);
 
+    // initialize a chunk and populate some blocks so it's not empty
+    for (int x = 0; x < Chunk::kSizeX; ++x) {
+        for (int z = 0; z < Chunk::kSizeZ; ++z) {
+            m_Chunk.setBlock(x, 0, z, 1);
+        }
+    }
+    // generate GPU buffers once
+    m_Chunk.updateMesh();
+
 	m_Initialized = true;
 }
 
@@ -217,7 +249,8 @@ void Renderer::shutdown() {
 	m_Initialized = false;
 }
 
-void Renderer::beginFrame() {
+void Renderer::beginFrame(float playerX, float playerY, float playerZ,
+                          float camOffsetX, float camOffsetY, float camOffsetZ) {
     if (!m_Initialized) init();
 
     // clear color and depth
@@ -296,26 +329,30 @@ void Renderer::beginFrame() {
     float right = zoom * aspect;
     float bottom = -zoom;
     float top = zoom;
-    float nearZ = -10.0f;
-    float farZ = 10.0f;
+    float nearZ = -1000.0f;
+    float farZ = 1000.0f;
 
     float P[16];
     ortho(left, right, bottom, top, nearZ, farZ, P);
 
-    // use stored camera orientation (radians)
-    // clamp pitch to safe range
-    const float maxPitchLimit = 89.0f * 3.14159265f / 180.0f;
-    if (m_Pitch > maxPitchLimit) m_Pitch = maxPitchLimit;
-    if (m_Pitch < -maxPitchLimit) m_Pitch = -maxPitchLimit;
+    // Camera distance comes from the configured offsets, while orientation
+    // comes from interactive yaw/pitch (middle-mouse orbit).
+    const float configuredDistance = std::sqrt(
+        camOffsetX * camOffsetX + camOffsetY * camOffsetY + camOffsetZ * camOffsetZ);
+    if (configuredDistance > 0.001f) {
+        m_Distance = configuredDistance;
+    }
 
-    float pitch = m_Pitch;
-    float yaw = m_Yaw;
-    float distance = m_Distance;
-    float eye[3];
-    eye[0] = distance * std::cos(pitch) * std::sin(yaw);
-    eye[1] = distance * std::sin(pitch);
-    eye[2] = distance * std::cos(pitch) * std::cos(yaw);
-    float center[3] = {0.0f, 0.0f, 0.0f};
+    const float dirX = std::cos(m_Pitch) * std::cos(m_Yaw);
+    const float dirY = std::sin(m_Pitch);
+    const float dirZ = std::cos(m_Pitch) * std::sin(m_Yaw);
+
+    float center[3] = { playerX, playerY, playerZ };
+    float eye[3] = {
+        playerX + dirX * m_Distance,
+        playerY + dirY * m_Distance,
+        playerZ + dirZ * m_Distance
+    };
     float upv[3] = {0.0f, 1.0f, 0.0f};
 
     float gridCenterX = std::floor(eye[0]);
@@ -327,9 +364,7 @@ void Renderer::beginFrame() {
     float MVP[16];
     mulMat(P, V, MVP);
 
-    // ---------------------------------------------------------
-    // 1. DRAW THE INFINITE GRID FIRST (BACKGROUND)
-    // ---------------------------------------------------------
+    // DRAW THE INFINITE GRID FIRST (BACKGROUND)
     if (m_GridShader && m_QuadVAO) {
         glUseProgram(m_GridShader);
         
@@ -396,9 +431,8 @@ void Renderer::beginFrame() {
     GLint ambLoc = glGetUniformLocation(m_Shader, "ambientStrength");
     if (ambLoc >= 0) glUniform1f(ambLoc, 1.0f);
 
-    glBindVertexArray(m_VAO);
-    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
-    glBindVertexArray(0);
+    // Use chunk rendering instead of the old cube draw
+    m_Chunk.render();
 }
 
 void Renderer::endFrame() {

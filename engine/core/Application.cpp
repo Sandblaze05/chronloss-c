@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "engine/render/Renderer.h"
+#include "engine/client/Player.h"
 
 Application::Application() {
 	init();
@@ -47,6 +48,7 @@ void Application::run() {
     glfwGetFramebufferSize(window, &fbw, &fbh);
     glViewport(0, 0, fbw > 0 ? fbw : 800, fbh > 0 ? fbh : 600);
 
+    Player player(8.0f, 1.0f, 8.0f);
     Renderer renderer;
 
     // connect scroll wheel to renderer zoom
@@ -78,8 +80,29 @@ void Application::run() {
     // set a clear color
     glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
 
+    float lastFrame = 0.0f;
+
+    // Camera offsets control the camera position relative to the player.
+    // Tweak these to change viewing angle and WASD orientation.
+    float camOffsetX = 10.0f;
+    float camOffsetY = 15.0f;
+    float camOffsetZ = 10.0f;
+
     while (!glfwWindowShouldClose(window)) {
-        renderer.beginFrame();
+        // Calculate Delta Time
+        float currentFrame = glfwGetTime();
+        float deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+
+        // Update Game Logic using live camera-relative movement axes.
+        float camForwardX = 0.0f, camForwardZ = -1.0f;
+        float camRightX = 1.0f, camRightZ = 0.0f;
+        renderer.getGroundAxes(camForwardX, camForwardZ, camRightX, camRightZ);
+        player.update(window, deltaTime, camForwardX, camForwardZ, camRightX, camRightZ);
+
+        // Render the Game (Pass the player's coordinates and camera offsets)
+        renderer.beginFrame(player.getX(), player.getY(), player.getZ(),
+                    camOffsetX, camOffsetY, camOffsetZ);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

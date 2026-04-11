@@ -1,13 +1,15 @@
 #pragma once
 
 #include <glad/glad.h>
+#include "engine/world/Chunk.h"
 
 class Renderer {
 public:
     Renderer();
     ~Renderer();
 
-    void beginFrame();
+    void beginFrame(float playerX, float playerY, float playerZ,
+                    float camOffsetX, float camOffsetY, float camOffsetZ);
     void endFrame();
 
 private:
@@ -36,9 +38,16 @@ private:
 
     bool m_Initialized = false;
 
+    // world chunk to render
+    Chunk m_Chunk;
+
 public:
     // input
     void onScroll(double xoffset, double yoffset);
     void onMouseButton(int button, int action, int mods);
     void onCursorPos(double xpos, double ypos);
+
+    // movement axes projected on the XZ ground plane
+    void getGroundAxes(float& forwardX, float& forwardZ,
+                       float& rightX, float& rightZ) const;
 };
