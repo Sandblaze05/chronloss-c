@@ -200,7 +200,6 @@ void Renderer::init() {
 	glBindVertexArray(0);
 
 
-    // Try loading grid shader from assets; fall back to inline sources if missing
     // Load grid shader from assets (no fallback)
     std::string gvert = loadFileToString("engine/assets/shaders/grid.vert");
     std::string gfrag = loadFileToString("engine/assets/shaders/grid.frag");
@@ -220,17 +219,20 @@ void Renderer::init() {
         m_Shader = 0;
     }
 
+    // load player shader (separate files)
+    std::string pvert = loadFileToString("engine/assets/shaders/player.vert");
+    std::string pfrag = loadFileToString("engine/assets/shaders/player.frag");
+    if (!pvert.empty() && !pfrag.empty()) {
+        m_PlayerShader = createProgram(pvert.c_str(), pfrag.c_str());
+    } else {
+        std::cerr << "Failed to load player shader files: engine/assets/shaders/player.vert or .frag\n";
+        m_PlayerShader = 0;
+    }
+
 	// enable depth test so cube renders correctly
 	glEnable(GL_DEPTH_TEST);
 
-    // initialize a chunk and populate some blocks so it's not empty
-    for (int x = 0; x < Chunk::kSizeX; ++x) {
-        for (int z = 0; z < Chunk::kSizeZ; ++z) {
-            m_Chunk.setBlock(x, 0, z, 1);
-        }
-    }
-    // generate GPU buffers once
-    m_Chunk.updateMesh();
+    // chunk streamer will populate chunks on demand
 
 	m_Initialized = true;
 }
@@ -243,6 +245,7 @@ void Renderer::shutdown() {
 	if (m_QuadVBO) glDeleteBuffers(1, &m_QuadVBO);
 	if (m_QuadVAO) glDeleteVertexArrays(1, &m_QuadVAO);
 	if (m_Shader) glDeleteProgram(m_Shader);
+    if (m_PlayerShader) glDeleteProgram(m_PlayerShader);
 	if (m_GridShader) glDeleteProgram(m_GridShader);
 	m_EBO = m_VBO = m_VAO = m_Shader = 0;
 	m_QuadVBO = m_QuadVAO = m_GridShader = 0;
@@ -250,11 +253,17 @@ void Renderer::shutdown() {
 }
 
 void Renderer::beginFrame(float playerX, float playerY, float playerZ,
-                          float camOffsetX, float camOffsetY, float camOffsetZ) {
+                          float camOffsetX, float camOffsetY, float camOffsetZ,
+                          float deltaTime) {
     if (!m_Initialized) init();
 
     // clear color and depth
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // --- APPLY LERP TO CAMERA Y ---
+    // The higher the speed multiplier, the faster the camera catches up.
+    float lerpSpeed = 5.0f;
+    m_SmoothCameraY += (playerY - m_SmoothCameraY) * lerpSpeed * deltaTime;
 
     // Build an orthographic projection and an isometric view (no external math libs)
     auto normalize = [](float v[3]) {
@@ -347,10 +356,11 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
     const float dirY = std::sin(m_Pitch);
     const float dirZ = std::cos(m_Pitch) * std::sin(m_Yaw);
 
-    float center[3] = { playerX, playerY, playerZ };
+    // Camera looks at the player's X/Z but uses a smoothed Y to avoid jitter
+    float center[3] = { playerX, m_SmoothCameraY, playerZ };
     float eye[3] = {
         playerX + dirX * m_Distance,
-        playerY + dirY * m_Distance,
+        m_SmoothCameraY + dirY * m_Distance,
         playerZ + dirZ * m_Distance
     };
     float upv[3] = {0.0f, 1.0f, 0.0f};
@@ -419,7 +429,10 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
         glEnable(GL_DEPTH_TEST); 
     }
 
-    // DRAW THE CUBE OVER THE GRID
+    // Ensure nearby chunks are requested and uploaded
+    m_Streamer.tick(center[0], center[1], center[2]);
+
+    // DRAW THE WORLD CHUNKS OVER THE GRID
     glUseProgram(m_Shader);
     
     GLint loc = glGetUniformLocation(m_Shader, "MVP");
@@ -431,8 +444,61 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
     GLint ambLoc = glGetUniformLocation(m_Shader, "ambientStrength");
     if (ambLoc >= 0) glUniform1f(ambLoc, 1.0f);
 
-    // Use chunk rendering instead of the old cube draw
-    m_Chunk.render();
+    // Upload any pending meshes and render streamed chunks (with per-chunk transform)
+    m_Streamer.renderAll(MVP, m_Shader);
+
+    // DRAW THE PLAYER AS TWO RED STACKED BLOCKS
+    if (m_VAO && m_PlayerShader) {
+        glUseProgram(m_PlayerShader);
+        // size of each block
+        const float blockHalfX = 0.3f; // half-size on X
+        const float blockHalfY = 0.3f; // half-size on Y
+        const float blockHalfZ = 0.3f; // half-size on Z
+
+        // helpers to build simple transform matrices (column-major)
+        auto makeTranslate = [](float x, float y, float z, float out[16]) {
+            // identity then translation
+            for (int i = 0; i < 16; ++i) out[i] = 0.0f;
+            out[0] = 1.0f; out[5] = 1.0f; out[10] = 1.0f; out[15] = 1.0f;
+            out[12] = x; out[13] = y; out[14] = z;
+        };
+        auto makeScale = [](float sx, float sy, float sz, float out[16]) {
+            for (int i = 0; i < 16; ++i) out[i] = 0.0f;
+            out[0] = sx; out[5] = sy; out[10] = sz; out[15] = 1.0f;
+        };
+
+        // compute model matrices and draw two cubes stacked vertically
+        float T[16], S[16], M[16], MVP_model[16];
+
+        GLint locMVP = glGetUniformLocation(m_PlayerShader, "MVP");
+        GLint locColor2 = glGetUniformLocation(m_PlayerShader, "color");
+
+        // bottom block center: sit on player's Y (player's Y treated as feet at ground)
+        float bottomCenterY = playerY + blockHalfY;
+        makeTranslate(playerX, bottomCenterY, playerZ, T);
+        makeScale(blockHalfX * 2.0f, blockHalfY * 2.0f, blockHalfZ * 2.0f, S);
+        mulMat(T, S, M); // M = T * S
+        mulMat(MVP, M, MVP_model); // MVP_model = MVP * M
+        if (locMVP >= 0) glUniformMatrix4fv(locMVP, 1, GL_FALSE, MVP_model);
+        if (locColor2 >= 0) glUniform3f(locColor2, 1.0f, 0.0f, 0.0f);
+        glBindVertexArray(m_VAO);
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+
+        // top block stacked above bottom
+        float topCenterY = bottomCenterY + (blockHalfY * 2.0f);
+        makeTranslate(playerX, topCenterY, playerZ, T);
+        // reuse S for same block size
+        mulMat(T, S, M);
+        mulMat(MVP, M, MVP_model);
+        if (locMVP >= 0) glUniformMatrix4fv(locMVP, 1, GL_FALSE, MVP_model);
+        if (locColor2 >= 0) glUniform3f(locColor2, 1.0f, 0.0f, 0.0f);
+        glBindVertexArray(m_VAO);
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+        // restore chunk shader
+        glUseProgram(m_Shader);
+    }
 }
 
 void Renderer::endFrame() {

@@ -42,6 +42,23 @@ FetchContent_MakeAvailable(glad)
 find_package(OpenGL REQUIRED)
 
 # -----------------------
+# Dear ImGui
+# -----------------------
+FetchContent_Declare(
+  imgui
+  GIT_REPOSITORY https://github.com/ocornut/imgui.git
+  GIT_TAG v1.90.4
+)
+FetchContent_MakeAvailable(imgui)
+
+set(IMGUI_DIR ${imgui_SOURCE_DIR})
+file(GLOB IMGUI_SOURCES
+  ${IMGUI_DIR}/*.cpp
+  ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+  ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+# -----------------------
 # Source files (auto)
 # -----------------------
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
@@ -49,7 +66,7 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
   engine/**/*.cpp
 )
 
-add_executable(chronloss ${SOURCES})
+add_executable(chronloss ${SOURCES} ${IMGUI_SOURCES})
 
 if (WIN32)
   target_compile_definitions(chronloss PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -60,6 +77,8 @@ endif()
 # -----------------------
 target_include_directories(chronloss PRIVATE
   ${CMAKE_SOURCE_DIR}
+  ${IMGUI_DIR}
+  ${IMGUI_DIR}/backends
 )
 
 # -----------------------

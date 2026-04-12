@@ -5,6 +5,11 @@
 #include <stdexcept>
 #include "engine/render/Renderer.h"
 #include "engine/client/Player.h"
+#include "engine/world/Block.h"
+
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
 
 Application::Application() {
 	init();
@@ -51,6 +56,9 @@ void Application::run() {
     Player player(8.0f, 1.0f, 8.0f);
     Renderer renderer;
 
+    // Initialize block registry once
+    BlockRegistry::init();
+
     // connect scroll wheel to renderer zoom
     glfwSetWindowUserPointer(window, &renderer);
     glfwSetScrollCallback(window, [](GLFWwindow* win, double xoffset, double yoffset) {
@@ -88,6 +96,13 @@ void Application::run() {
     float camOffsetY = 15.0f;
     float camOffsetZ = 10.0f;
 
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+
     while (!glfwWindowShouldClose(window)) {
         // Calculate Delta Time
         float currentFrame = glfwGetTime();
@@ -98,15 +113,39 @@ void Application::run() {
         float camForwardX = 0.0f, camForwardZ = -1.0f;
         float camRightX = 1.0f, camRightZ = 0.0f;
         renderer.getGroundAxes(camForwardX, camForwardZ, camRightX, camRightZ);
-        player.update(window, deltaTime, camForwardX, camForwardZ, camRightX, camRightZ);
+        player.update(window, deltaTime, camForwardX, camForwardZ, camRightX, camRightZ, renderer.getStreamer());
 
-        // Render the Game (Pass the player's coordinates and camera offsets)
+        // Render the Game (Pass the player's coordinates, camera offsets, and deltaTime)
         renderer.beginFrame(player.getX(), player.getY(), player.getZ(),
-                    camOffsetX, camOffsetY, camOffsetZ);
+                camOffsetX, camOffsetY, camOffsetZ,
+                deltaTime);
+        
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::Begin("Engine Debug");
+        ImGui::Text("FPS: %.1f", io.Framerate);
+        ImGui::Separator();
+        ImGui::Text("Player Position:");
+        ImGui::Text("X: %.2f", player.getX());
+        ImGui::Text("Y: %.2f", player.getY());
+        ImGui::Text("Z: %.2f", player.getZ());
+        ImGui::Separator();
+        ImGui::Text("World State:");
+        ImGui::Text("Loaded Chunks: %zu", renderer.getLoadedChunkCount());
+        ImGui::End();
+
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
     glfwDestroyWindow(window);
 }

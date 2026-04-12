@@ -1,5 +1,7 @@
 #include "Chunk.h"
+#include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include "Block.h"
 
 Chunk::Chunk() : blocks_(kSizeX * kSizeY * kSizeZ, 0u) {
 }
@@ -101,32 +103,32 @@ std::vector<float> Chunk::generateMesh() {
         for (int z = 0; z < kSizeZ; z++) {
             for (int x = 0; x < kSizeX; x++) {
                 std::uint8_t blockId = getBlock(x, y, z);
-                if (blockId == 0) { // ignore air
+                if (!BlockRegistry::get(blockId).isSolid) { // ignore non-solid blocks
                     continue;
                 }
 
                 // right face (x + 1)
-                if (getBlock(x + 1, y, z) == 0) {
+                if (!BlockRegistry::get(getBlock(x + 1, y, z)).isSolid) {
                     addFace(vertices, x, y, z, FACE_RIGHT);
                 }
                 // left face (x - 1)
-                if (getBlock(x - 1, y, z) == 0) {
+                if (!BlockRegistry::get(getBlock(x - 1, y, z)).isSolid) {
                     addFace(vertices, x, y, z, FACE_LEFT);
                 }
                 // top face (y + 1)
-                if (getBlock(x, y + 1, z) == 0) {
+                if (!BlockRegistry::get(getBlock(x, y + 1, z)).isSolid) {
                     addFace(vertices, x, y, z, FACE_TOP);
                 }
                 // top face (y - 1)
-                if (getBlock(x, y - 1, z) == 0) {
+                if (!BlockRegistry::get(getBlock(x, y - 1, z)).isSolid) {
                     addFace(vertices, x, y, z, FACE_BOTTOM);
                 }
                 // front face (z + 1)
-                if (getBlock(x, y, z + 1) == 0) {
+                if (!BlockRegistry::get(getBlock(x, y, z + 1)).isSolid) {
                     addFace(vertices, x, y, z, FACE_FRONT);
                 }
                 // back face (z - 1)
-                if (getBlock(x, y, z - 1) == 0) {
+                if (!BlockRegistry::get(getBlock(x, y, z - 1)).isSolid) {
                     addFace(vertices, x, y, z, FACE_BACK);
                 }
             }
@@ -164,6 +166,10 @@ void Chunk::updateMesh() {
     glBindVertexArray(0);
 }
 
+void Chunk::copyBlocksFrom(const Chunk& other) {
+    blocks_ = other.blocks_;
+}
+
 void Chunk::render() {
     if (vertexCount_ == 0) { // its air
         return;
@@ -172,4 +178,46 @@ void Chunk::render() {
     glBindVertexArray(vao_);
     glDrawArrays(GL_TRIANGLES, 0, vertexCount_);
     glBindVertexArray(0);
+}
+
+void Chunk::setPendingMesh(std::vector<float>&& v) {
+    std::lock_guard<std::mutex> lock(pendingMutex_);
+    pendingVertices_.swap(v);
+    pendingUpload_.store(true, std::memory_order_release);
+}
+
+void Chunk::uploadPendingMesh() {
+    if (!pendingUpload_.load(std::memory_order_acquire)) return;
+
+    std::vector<float> verts;
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        verts.swap(pendingVertices_);
+        pendingUpload_.store(false, std::memory_order_release);
+    }
+
+    vertexCount_ = static_cast<int>(verts.size() / 5);
+
+    if (vao_ == 0) {
+        glGenVertexArrays(1, &vao_);
+        glGenBuffers(1, &vbo_);
+    }
+
+    glBindVertexArray(vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+
+    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+
+    GLsizei stride = 5 * sizeof(float);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+}
+
+bool Chunk::hasPendingMesh() const {
+    return pendingUpload_.load(std::memory_order_acquire);
 }

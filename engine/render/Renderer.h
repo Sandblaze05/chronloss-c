@@ -2,6 +2,7 @@
 
 #include <glad/glad.h>
 #include "engine/world/Chunk.h"
+#include "engine/world/ChunkStreamer.h"
 
 class Renderer {
 public:
@@ -9,7 +10,8 @@ public:
     ~Renderer();
 
     void beginFrame(float playerX, float playerY, float playerZ,
-                    float camOffsetX, float camOffsetY, float camOffsetZ);
+                    float camOffsetX, float camOffsetY, float camOffsetZ,
+                    float deltaTime);
     void endFrame();
 
 private:
@@ -25,6 +27,7 @@ private:
     GLuint m_QuadVBO = 0;
 
     GLuint m_GridShader = 0;
+    GLuint m_PlayerShader = 0;
     // camera params
     float m_Zoom = 1.8f; // orthographic half-extent
     float m_Yaw = 45.0f * 3.14159265f / 180.0f;   // radians
@@ -38,14 +41,24 @@ private:
 
     bool m_Initialized = false;
 
-    // world chunk to render
-    Chunk m_Chunk;
+    // world chunk streaming (seed, horizontal radius, vertical radius)
+    ChunkStreamer m_Streamer{12345u, 4, 0};
 
+    // Keep track of the camera's actual smoothed height (for lerping)
+    float m_SmoothCameraY = 1.0f;
+
+    
 public:
+    size_t getLoadedChunkCount() {
+        return m_Streamer.getLoadedChunkCount();
+    }
     // input
     void onScroll(double xoffset, double yoffset);
     void onMouseButton(int button, int action, int mods);
     void onCursorPos(double xpos, double ypos);
+
+    // Expose the internal chunk streamer so other systems (e.g., player) can query world blocks
+    ChunkStreamer& getStreamer() { return m_Streamer; }
 
     // movement axes projected on the XZ ground plane
     void getGroundAxes(float& forwardX, float& forwardZ,
