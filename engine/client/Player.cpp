@@ -40,7 +40,7 @@ void Player::update(GLFWwindow* window, float deltaTime,
     // If spawn/movement places the player inside solid terrain, push upward until clear.
     int feetY = static_cast<int>(std::floor(pos_[1]));
     int pushBudget = Chunk::kSizeY * 2;
-    while (pushBudget-- > 0 && blockAt(feetY).isSolid) {
+    while (pushBudget-- > 0 && blockAt(feetY).isSolid()) {
         ++feetY;
     }
     pos_[1] = static_cast<float>(feetY);
@@ -51,7 +51,7 @@ void Player::update(GLFWwindow* window, float deltaTime,
     for (int y = feetY; y >= feetY - probeDown; --y) {
         const BlockData& ground = blockAt(y - 1);
         const BlockData& feet = blockAt(y);
-        if (ground.isWalkable && !feet.isSolid) {
+        if (ground.isWalkable() && !feet.isSolid()) {
             surfaceFeetY = y;
             break;
         }

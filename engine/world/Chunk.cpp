@@ -113,32 +113,32 @@ std::vector<float> Chunk::generateMesh() {
         for (int z = 0; z < kSizeZ; z++) {
             for (int x = 0; x < kSizeX; x++) {
                 std::uint8_t blockId = getBlock(x, y, z);
-                if (!BlockRegistry::get(blockId).isSolid) { // ignore non-solid blocks
+                if (!BlockRegistry::get(blockId).isSolid()) { // ignore non-solid blocks
                     continue;
                 }
 
                 // right face (x + 1)
-                if (!BlockRegistry::get(getBlock(x + 1, y, z)).isSolid) {
+                if (!BlockRegistry::get(getBlock(x + 1, y, z)).isSolid()) {
                     addFace(vertices, x, y, z, FACE_RIGHT);
                 }
                 // left face (x - 1)
-                if (!BlockRegistry::get(getBlock(x - 1, y, z)).isSolid) {
+                if (!BlockRegistry::get(getBlock(x - 1, y, z)).isSolid()) {
                     addFace(vertices, x, y, z, FACE_LEFT);
                 }
                 // top face (y + 1)
-                if (!BlockRegistry::get(getBlock(x, y + 1, z)).isSolid) {
+                if (!BlockRegistry::get(getBlock(x, y + 1, z)).isSolid()) {
                     addFace(vertices, x, y, z, FACE_TOP);
                 }
                 // top face (y - 1)
-                if (!BlockRegistry::get(getBlock(x, y - 1, z)).isSolid) {
+                if (!BlockRegistry::get(getBlock(x, y - 1, z)).isSolid()) {
                     addFace(vertices, x, y, z, FACE_BOTTOM);
                 }
                 // front face (z + 1)
-                if (!BlockRegistry::get(getBlock(x, y, z + 1)).isSolid) {
+                if (!BlockRegistry::get(getBlock(x, y, z + 1)).isSolid()) {
                     addFace(vertices, x, y, z, FACE_FRONT);
                 }
                 // back face (z - 1)
-                if (!BlockRegistry::get(getBlock(x, y, z - 1)).isSolid) {
+                if (!BlockRegistry::get(getBlock(x, y, z - 1)).isSolid()) {
                     addFace(vertices, x, y, z, FACE_BACK);
                 }
             }

@@ -2,27 +2,55 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <unordered_map>
+
+enum BlockFlags : uint32_t {
+    BLOCK_FLAG_NONE = 0,
+    BLOCK_FLAG_SOLID = 1 << 0,
+    BLOCK_FLAG_WALKABLE = 1 << 1,
+    BLOCK_FLAG_TRANSPARENT = 1 << 2
+};
 
 struct BlockData {
-    std::string name;
-    bool isSolid;       // Does it block the camera / meshing?
-    bool isWalkable;    
+    std::string name = "Unknown";
+    uint32_t flags = BLOCK_FLAG_NONE;
+    int lightLevel = 0;
+
+    bool isSolid() const { return (flags & BLOCK_FLAG_SOLID) != 0; }
+    bool isWalkable() const { return (flags & BLOCK_FLAG_WALKABLE) != 0; }
+    bool isTransparent() const { return (flags & BLOCK_FLAG_TRANSPARENT) != 0; }
 };
 
 class BlockRegistry {
 public:
+    class Builder {
+    public:
+        Builder(std::uint8_t id, const std::string& name) : id_(id) {
+            data_.name = name;
+        }
+
+        Builder& makeSolid() { data_.flags |= BLOCK_FLAG_SOLID; return *this; }
+        Builder& makeWalkable() { data_.flags |= BLOCK_FLAG_WALKABLE; return *this; }
+        Builder& makeTransparent() { data_.flags |= BLOCK_FLAG_TRANSPARENT; return *this; }
+
+        Builder& setLightLevel(int level) { data_.lightLevel = level; return *this; }
+
+        ~Builder() {
+            BlockRegistry::blocks_[id_] = data_;
+        }
+
+    private:
+        std::uint8_t id_;
+        BlockData data_;
+    };
+
     static void init() {
-        // ID 0: Air
-        blocks_[0] = { "Air", false, false };
+        registerBlock(0, "Air").makeTransparent();
+        registerBlock(1, "Stone").makeSolid().makeWalkable();
+    }
 
-        // ID 1: Dirt
-        blocks_[1] = { "Dirt", true, true };
-
-        // ID 2: Water
-        blocks_[2] = { "Water", false, false };
-
-        // ID 3: Tall Grass
-        blocks_[3] = { "Stone", true, true };
+    static Builder registerBlock(std::uint8_t id, const std::string& name) {
+        return Builder(id, name);
     }
 
     static const BlockData& get(std::uint8_t id) {
