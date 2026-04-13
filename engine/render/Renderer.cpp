@@ -7,6 +7,7 @@
 #include <cmath>
 #include <limits>
 #include <GLFW/glfw3.h>
+// #include <engine/world/Block.h>
 
 static GLuint compileShader(GLenum type, const char* src) {
 	GLuint id = glCreateShader(type);
@@ -83,10 +84,13 @@ void Renderer::onCursorPos(double xpos, double ypos) {
 		m_Yaw += static_cast<float>(dx) * sensitivity; // left -> turn right
 		m_Pitch += static_cast<float>(dy) * sensitivity; // down -> go up
 
-		// clamp pitch to avoid gimbal flip
-		const float maxPitch = 89.0f * 3.14159265f / 180.0f;
-		if (m_Pitch > maxPitch) m_Pitch = maxPitch;
-		if (m_Pitch < -maxPitch) m_Pitch = -maxPitch;
+		// Clamp pitch: never let camera go below horizon
+        // min ~5 degrees above ground, max ~80 degrees overhead
+        const float minPitch =  5.0f * 3.14159265f / 180.0f;  // just above ground
+        const float maxPitch = 80.0f * 3.14159265f / 180.0f;  // near top-down
+
+        if (m_Pitch < minPitch) m_Pitch = minPitch;
+        if (m_Pitch > maxPitch) m_Pitch = maxPitch;
 	}
 
 	m_LastMouseX = xpos;
@@ -263,7 +267,10 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
     // --- APPLY LERP TO CAMERA Y ---
     // The higher the speed multiplier, the faster the camera catches up.
     float lerpSpeed = 5.0f;
+    float lerpSpeedPlayer = 10.0f;
     m_SmoothCameraY += (playerY - m_SmoothCameraY) * lerpSpeed * deltaTime;
+
+    m_SmoothPlayerY += (playerY - m_SmoothPlayerY) * lerpSpeedPlayer * deltaTime;
 
     // Build an orthographic projection and an isometric view (no external math libs)
     auto normalize = [](float v[3]) {
@@ -338,7 +345,7 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
     float right = zoom * aspect;
     float bottom = -zoom;
     float top = zoom;
-    float nearZ = -1000.0f;
+    float nearZ = 0.1f;
     float farZ = 1000.0f;
 
     float P[16];
@@ -357,12 +364,51 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
     const float dirZ = std::cos(m_Pitch) * std::sin(m_Yaw);
 
     // Camera looks at the player's X/Z but uses a smoothed Y to avoid jitter
-    float center[3] = { playerX, m_SmoothCameraY, playerZ };
+    float center[3] = { playerX, m_SmoothPlayerY, playerZ };
     float eye[3] = {
         playerX + dirX * m_Distance,
         m_SmoothCameraY + dirY * m_Distance,
         playerZ + dirZ * m_Distance
     };
+
+    // // Cast ray FROM player center TOWARD ideal eye position
+    // float rayDirX = idealEye[0] - center[0];
+    // float rayDirY = idealEye[1] - center[1];
+    // float rayDirZ = idealEye[2] - center[2];
+
+    // float maxDist = std::sqrt(rayDirX * rayDirX + rayDirY * rayDirY + rayDirZ * rayDirZ);
+    // if (maxDist > 0.0001f) {
+    //     rayDirX /= maxDist;
+    //     rayDirY /= maxDist;
+    //     rayDirZ /= maxDist;
+    // }
+
+    // float finalDist = maxDist; // default: no obstruction
+    // float stepSize = 0.1f;     // smaller = more accurate, but more checks
+
+    // for (float t = stepSize; t <= maxDist; t += stepSize) {
+    //     float cx = center[0] + rayDirX * t;
+    //     float cy = center[1] + rayDirY * t;
+    //     float cz = center[2] + rayDirZ * t;
+
+    //     int blockX = static_cast<int>(std::floor(cx));
+    //     int blockY = static_cast<int>(std::floor(cy));
+    //     int blockZ = static_cast<int>(std::floor(cz));
+
+    //     std::uint8_t blockId = m_Streamer.getBlockAtWorld(blockX, blockY, blockZ);
+
+    //     if (BlockRegistry::get(blockId).isSolid) {
+    //         finalDist = std::max(0.5f, t - stepSize); // pull back one step, keep min distance
+    //         break;
+    //     }
+    // }
+
+    // float eye[3] = {
+    //     center[0] + rayDirX * finalDist,
+    //     center[1] + rayDirY * finalDist,
+    //     center[2] + rayDirZ * finalDist
+    // };
+
     float upv[3] = {0.0f, 1.0f, 0.0f};
 
     float gridCenterX = std::floor(eye[0]);
@@ -474,7 +520,7 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
         GLint locColor2 = glGetUniformLocation(m_PlayerShader, "color");
 
         // bottom block center: sit on player's Y (player's Y treated as feet at ground)
-        float bottomCenterY = playerY + blockHalfY;
+        float bottomCenterY = m_SmoothPlayerY + blockHalfY;
         makeTranslate(playerX, bottomCenterY, playerZ, T);
         makeScale(blockHalfX * 2.0f, blockHalfY * 2.0f, blockHalfZ * 2.0f, S);
         mulMat(T, S, M); // M = T * S

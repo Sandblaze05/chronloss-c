@@ -46,6 +46,7 @@ private:
 
     // Keep track of the camera's actual smoothed height (for lerping)
     float m_SmoothCameraY = 1.0f;
+    float m_SmoothPlayerY = 0.0f;
 
     
 public:

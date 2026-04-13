@@ -33,65 +33,75 @@ void Chunk::addFace(std::vector<float>& vertices, int x, int y, int z, FaceDirec
     float fy = static_cast<float>(y);
     float fz = static_cast<float>(z);
 
-    // standard UVs for a square
     float uvs[6][2] = {
         {0.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 1.0f},
         {1.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}
     };
 
+    // nx, ny, nz per face
+    float nx = 0, ny = 0, nz = 0;
     switch (face) {
-        case FACE_TOP: // Y + 1
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz,          uvs[0][0], uvs[0][1]});
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz + 1.0f,   uvs[1][0], uvs[1][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz + 1.0f, uvs[2][0], uvs[2][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz + 1.0f, uvs[3][0], uvs[3][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz,   uvs[4][0], uvs[4][1]});
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz,          uvs[5][0], uvs[5][1]});
-            break;
+        case FACE_TOP:    ny =  1.0f; break;
+        case FACE_BOTTOM: ny = -1.0f; break;
+        case FACE_LEFT:   nx = -1.0f; break;
+        case FACE_RIGHT:  nx =  1.0f; break;
+        case FACE_FRONT:  nz =  1.0f; break;
+        case FACE_BACK:   nz = -1.0f; break;
+    }
 
-        case FACE_BOTTOM: // Y (Base)
-            vertices.insert(vertices.end(), {fx, fy, fz + 1.0f,          uvs[0][0], uvs[0][1]});
-            vertices.insert(vertices.end(), {fx, fy, fz,                 uvs[1][0], uvs[1][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz,          uvs[2][0], uvs[2][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz,          uvs[3][0], uvs[3][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz + 1.0f,   uvs[4][0], uvs[4][1]});
-            vertices.insert(vertices.end(), {fx, fy, fz + 1.0f,          uvs[5][0], uvs[5][1]});
-            break;
+    // helper to push one vertex: pos(3) + normal(3) + uv(2)
+    auto push = [&](float px, float py, float pz, int uvi) {
+        vertices.insert(vertices.end(), {px, py, pz, nx, ny, nz, uvs[uvi][0], uvs[uvi][1]});
+    };
 
-        case FACE_LEFT: // X (Base)
-            vertices.insert(vertices.end(), {fx, fy, fz,                 uvs[0][0], uvs[0][1]});
-            vertices.insert(vertices.end(), {fx, fy, fz + 1.0f,          uvs[1][0], uvs[1][1]});
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz + 1.0f,   uvs[2][0], uvs[2][1]});
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz + 1.0f,   uvs[3][0], uvs[3][1]});
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz,          uvs[4][0], uvs[4][1]});
-            vertices.insert(vertices.end(), {fx, fy, fz,                 uvs[5][0], uvs[5][1]});
+    switch (face) {
+        case FACE_TOP:
+            push(fx,        fy+1, fz,        0);
+            push(fx,        fy+1, fz+1,      1);
+            push(fx+1,      fy+1, fz+1,      2);
+            push(fx+1,      fy+1, fz+1,      3);
+            push(fx+1,      fy+1, fz,        4);
+            push(fx,        fy+1, fz,        5);
             break;
-
-        case FACE_RIGHT: // X + 1
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz + 1.0f,   uvs[0][0], uvs[0][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz,          uvs[1][0], uvs[1][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz,   uvs[2][0], uvs[2][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz,   uvs[3][0], uvs[3][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz + 1.0f, uvs[4][0], uvs[4][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz + 1.0f,   uvs[5][0], uvs[5][1]});
+        case FACE_BOTTOM:
+            push(fx,        fy,   fz+1,      0);
+            push(fx,        fy,   fz,        1);
+            push(fx+1,      fy,   fz,        2);
+            push(fx+1,      fy,   fz,        3);
+            push(fx+1,      fy,   fz+1,      4);
+            push(fx,        fy,   fz+1,      5);
             break;
-
-        case FACE_FRONT: // Z + 1
-            vertices.insert(vertices.end(), {fx, fy, fz + 1.0f,          uvs[0][0], uvs[0][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz + 1.0f,   uvs[1][0], uvs[1][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz + 1.0f, uvs[2][0], uvs[2][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz + 1.0f, uvs[3][0], uvs[3][1]});
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz + 1.0f,   uvs[4][0], uvs[4][1]});
-            vertices.insert(vertices.end(), {fx, fy, fz + 1.0f,          uvs[5][0], uvs[5][1]});
+        case FACE_LEFT:
+            push(fx,        fy,   fz,        0);
+            push(fx,        fy,   fz+1,      1);
+            push(fx,        fy+1, fz+1,      2);
+            push(fx,        fy+1, fz+1,      3);
+            push(fx,        fy+1, fz,        4);
+            push(fx,        fy,   fz,        5);
             break;
-
-        case FACE_BACK: // Z (Base)
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz,          uvs[0][0], uvs[0][1]});
-            vertices.insert(vertices.end(), {fx, fy, fz,                 uvs[1][0], uvs[1][1]});
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz,          uvs[2][0], uvs[2][1]});
-            vertices.insert(vertices.end(), {fx, fy + 1.0f, fz,          uvs[3][0], uvs[3][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy + 1.0f, fz,   uvs[4][0], uvs[4][1]});
-            vertices.insert(vertices.end(), {fx + 1.0f, fy, fz,          uvs[5][0], uvs[5][1]});
+        case FACE_RIGHT:
+            push(fx+1,      fy,   fz+1,      0);
+            push(fx+1,      fy,   fz,        1);
+            push(fx+1,      fy+1, fz,        2);
+            push(fx+1,      fy+1, fz,        3);
+            push(fx+1,      fy+1, fz+1,      4);
+            push(fx+1,      fy,   fz+1,      5);
+            break;
+        case FACE_FRONT:
+            push(fx,        fy,   fz+1,      0);
+            push(fx+1,      fy,   fz+1,      1);
+            push(fx+1,      fy+1, fz+1,      2);
+            push(fx+1,      fy+1, fz+1,      3);
+            push(fx,        fy+1, fz+1,      4);
+            push(fx,        fy,   fz+1,      5);
+            break;
+        case FACE_BACK:
+            push(fx+1,      fy,   fz,        0);
+            push(fx,        fy,   fz,        1);
+            push(fx,        fy+1, fz,        2);
+            push(fx,        fy+1, fz,        3);
+            push(fx+1,      fy+1, fz,        4);
+            push(fx+1,      fy,   fz,        5);
             break;
     }
 }
@@ -140,7 +150,7 @@ std::vector<float> Chunk::generateMesh() {
 void Chunk::updateMesh() {
     std::vector<float> vertices = generateMesh();
 
-    vertexCount_ = vertices.size() / 5;
+    vertexCount_ = static_cast<int>(vertices.size() / 8);
 
     if (vao_ == 0) {
         glGenVertexArrays(1, &vao_);
@@ -152,16 +162,19 @@ void Chunk::updateMesh() {
 
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
 
-    // The size of one full vertex is now 5 floats
-    GLsizei stride = 5 * sizeof(float);
+    // The size of one full vertex is position(3) + normal(3) + uv(2).
+    GLsizei stride = 8 * sizeof(float);
 
     // position attribute 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
     glEnableVertexAttribArray(0);
     
-    // uv attribute
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+    // normal attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     glBindVertexArray(0);
 }
@@ -196,7 +209,7 @@ void Chunk::uploadPendingMesh() {
         pendingUpload_.store(false, std::memory_order_release);
     }
 
-    vertexCount_ = static_cast<int>(verts.size() / 5);
+    vertexCount_ = static_cast<int>(verts.size() / 8);
 
     if (vao_ == 0) {
         glGenVertexArrays(1, &vao_);
@@ -208,12 +221,19 @@ void Chunk::uploadPendingMesh() {
 
     glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
 
-    GLsizei stride = 5 * sizeof(float);
+    GLsizei stride = 8 * sizeof(float);
 
+    // position attribute
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+
+    // normal attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    // uv attribute
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     glBindVertexArray(0);
 }
