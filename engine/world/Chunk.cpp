@@ -181,6 +181,7 @@ void Chunk::updateMesh() {
 
 void Chunk::copyBlocksFrom(const Chunk& other) {
     blocks_ = other.blocks_;
+    hasVoxelData_.store(true, std::memory_order_release);
 }
 
 void Chunk::render() {
@@ -240,4 +241,8 @@ void Chunk::uploadPendingMesh() {
 
 bool Chunk::hasPendingMesh() const {
     return pendingUpload_.load(std::memory_order_acquire);
+}
+
+bool Chunk::hasVoxelData() const {
+    return hasVoxelData_.load(std::memory_order_acquire);
 }

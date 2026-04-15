@@ -243,6 +243,7 @@ std::uint8_t ChunkStreamer::getBlockAtWorld(int worldX, int worldY, int worldZ) 
     std::lock_guard<std::mutex> lock(mapMutex_);
     auto it = chunks_.find(cc);
     if (it == chunks_.end()) return 0; // If chunk isn't loaded, return Air
+    if (!it->second->hasVoxelData()) return 0; // placeholder chunk without generated voxel data
 
     // Convert World Pos to Local Chunk Pos (0 to kSize-1)
     int lx = worldX - (cx * Chunk::kSizeX);
@@ -250,4 +251,16 @@ std::uint8_t ChunkStreamer::getBlockAtWorld(int worldX, int worldY, int worldZ) 
     int lz = worldZ - (cz * Chunk::kSizeZ);
 
     return it->second->getBlock(lx, ly, lz);
+}
+
+bool ChunkStreamer::isBlockDataReadyAtWorld(int worldX, int worldY, int worldZ) {
+    int cx = static_cast<int>(std::floor(static_cast<float>(worldX) / Chunk::kSizeX));
+    int cy = static_cast<int>(std::floor(static_cast<float>(worldY) / Chunk::kSizeY));
+    int cz = static_cast<int>(std::floor(static_cast<float>(worldZ) / Chunk::kSizeZ));
+
+    ChunkCoord cc{cx, cy, cz};
+    std::lock_guard<std::mutex> lock(mapMutex_);
+    auto it = chunks_.find(cc);
+    if (it == chunks_.end()) return false;
+    return it->second->hasVoxelData();
 }

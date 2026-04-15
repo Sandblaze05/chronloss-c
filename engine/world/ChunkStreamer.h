@@ -50,6 +50,9 @@ public:
     // containing the position is not loaded.
     std::uint8_t getBlockAtWorld(int worldX, int worldY, int worldZ);
 
+    // Returns true when the chunk containing this world position has generated voxel data.
+    bool isBlockDataReadyAtWorld(int worldX, int worldY, int worldZ);
+
     size_t getLoadedChunkCount() {
         std::lock_guard<std::mutex> lock(mapMutex_);
         return chunks_.size();

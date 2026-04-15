@@ -36,6 +36,7 @@ public:
     // To be called on the main GL thread to upload any pending mesh
     void uploadPendingMesh();
     bool hasPendingMesh() const;
+    bool hasVoxelData() const;
     void render();
 
 private:
@@ -45,6 +46,7 @@ private:
     mutable std::mutex pendingMutex_;
     std::vector<float> pendingVertices_;
     std::atomic_bool pendingUpload_{false};
+    std::atomic_bool hasVoxelData_{false};
 
     static int indexOf(int x, int y, int z);
 };
