@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 4.3)
 project(chronloss LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -33,6 +33,9 @@ FetchContent_Declare(
 set(GLAD_PROFILE "core")
 set(GLAD_API "gl=4.6")
 set(GLAD_GENERATOR "c")
+
+# Suppress the error for dependencies using old CMake versions
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 FetchContent_MakeAvailable(glad)
 

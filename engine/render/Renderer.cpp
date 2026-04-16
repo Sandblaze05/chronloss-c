@@ -317,6 +317,17 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
         out[12] = -dot(s, eye); out[13] = -dot(u, eye); out[14] = dot(f, eye); out[15] = 1.0f;
     };
 
+    // perspective projection (column-major)
+    auto perspective = [](float fovY, float aspect, float nearZ, float farZ, float out[16]) {
+        float f = 1.0f / std::tan(fovY / 2.0f);
+        for (int i = 0; i < 16; ++i) out[i] = 0.0f;
+        out[0]  = f / aspect;
+        out[5]  = f;
+        out[10] = (farZ + nearZ) / (nearZ - farZ);
+        out[11] = -1.0f;
+        out[14] = (2.0f * farZ * nearZ) / (nearZ - farZ);
+    };
+
     auto mulMat = [](const float a[16], const float b[16], float out[16]) {
         // out = a * b (both column-major)
         for (int col = 0; col < 4; ++col) {
@@ -339,24 +350,23 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
 
     float aspect = width > 0 ? (float)width / (float)height : 4.0f/3.0f;
 
-    // orthographic extents: adjust 'zoom' to fit cube nicely
-    float zoom = m_Zoom; // world units half-size
-    float left = -zoom * aspect;
-    float right = zoom * aspect;
-    float bottom = -zoom;
-    float top = zoom;
+    // Use perspective projection instead of orthographic
+    float zoom = m_Zoom; // keep for grid shader usage
+
+    // --- ADD THIS ---
+    float fovRadians = 60.0f * (3.14159265f / 180.0f); // 60-degree Field of View
     float nearZ = 0.1f;
     float farZ = 1000.0f;
 
     float P[16];
-    ortho(left, right, bottom, top, nearZ, farZ, P);
+    perspective(fovRadians, aspect, nearZ, farZ, P);
 
     // Camera distance comes from the configured offsets, while orientation
     // comes from interactive yaw/pitch (middle-mouse orbit).
     const float configuredDistance = std::sqrt(
         camOffsetX * camOffsetX + camOffsetY * camOffsetY + camOffsetZ * camOffsetZ);
     if (configuredDistance > 0.001f) {
-        m_Distance = configuredDistance;
+        m_Distance = configuredDistance * m_Zoom; // Apply zoom multiplier here
     }
 
     const float dirX = std::cos(m_Pitch) * std::cos(m_Yaw);
