@@ -56,7 +56,7 @@ void Application::run() {
     glfwGetFramebufferSize(window, &fbw, &fbh);
     glViewport(0, 0, fbw > 0 ? fbw : 800, fbh > 0 ? fbh : 600);
 
-    Player player(8.0f, 1.0f, 8.0f);
+    Player player(0.0f, 1.0f, 0.0f);
     Renderer renderer;
 
     // Initialize block registry once
@@ -244,6 +244,18 @@ void Application::run() {
         ImGui::Separator();
         ImGui::Text("World State:");
         ImGui::Text("Loaded Chunks: %zu", renderer.getLoadedChunkCount());
+        // Expose chunk streamer radii so we can change render distance at runtime
+        {
+            ChunkStreamer& streamer = renderer.getStreamer();
+            int horiz = streamer.getRadius();
+            int vert = streamer.getVerticalRadius();
+            if (ImGui::SliderInt("Chunk Radius", &horiz, 1, 12)) {
+                streamer.setRadius(horiz);
+            }
+            if (ImGui::SliderInt("Vertical Radius", &vert, 0, 6)) {
+                streamer.setVerticalRadius(vert);
+            }
+        }
         ImGui::End();
 
         ImGui::Render();

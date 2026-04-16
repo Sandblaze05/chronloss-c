@@ -350,10 +350,8 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
 
     float aspect = width > 0 ? (float)width / (float)height : 4.0f/3.0f;
 
-    // Use perspective projection instead of orthographic
     float zoom = m_Zoom; // keep for grid shader usage
 
-    // --- ADD THIS ---
     float fovRadians = 60.0f * (3.14159265f / 180.0f); // 60-degree Field of View
     float nearZ = 0.1f;
     float farZ = 1000.0f;

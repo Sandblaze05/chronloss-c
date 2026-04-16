@@ -74,7 +74,14 @@ private:
     std::atomic_bool running_{false};
 
     std::uint64_t seed_ = 0;
-    int radius_ = 8;
+    std::atomic<int> radius_ {8};
     // number of chunk layers vertically to load around player (0 = single Y layer)
-    int vRadius_ = 0;
+    std::atomic<int> vRadius_ {0};
+
+public:
+    // Runtime accessors to allow debugging / changing render distance
+    int getRadius() const { return radius_.load(std::memory_order_acquire); }
+    void setRadius(int r) { radius_.store(r, std::memory_order_release); }
+    int getVerticalRadius() const { return vRadius_.load(std::memory_order_acquire); }
+    void setVerticalRadius(int vr) { vRadius_.store(vr, std::memory_order_release); }
 };

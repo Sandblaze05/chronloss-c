@@ -85,16 +85,16 @@ ChunkStreamer::~ChunkStreamer() {
 }
 
 void ChunkStreamer::enqueueIfMissing(const ChunkCoord& c) {
-    std::lock_guard<std::mutex> lock(mapMutex_);
+    // Acquire both mutexes together to avoid lock-order inversion with the
+    // worker thread (which locks queueMutex_ then mapMutex_). Using
+    // std::scoped_lock prevents deadlocks by locking both safely.
+    std::scoped_lock lock(mapMutex_, queueMutex_);
     auto it = chunks_.find(c);
     if (it == chunks_.end()) {
         // create empty slot so worker can find it
         chunks_.emplace(c, std::make_unique<Chunk>());
         // push request
-        {
-            std::lock_guard<std::mutex> qlock(queueMutex_);
-            queue_.push_back(c);
-        }
+        queue_.push_back(c);
         queueCv_.notify_one();
     }
 }
@@ -105,10 +105,14 @@ void ChunkStreamer::tick(float playerX, float playerY, float playerZ) {
     int pcy = static_cast<int>(std::floor(playerY / Chunk::kSizeY));
     int pcz = static_cast<int>(std::floor(playerZ / Chunk::kSizeZ));
 
+    // Read atomic radii once for this tick to avoid repeated loads
+    int radius = radius_.load(std::memory_order_acquire);
+    int vRadius = vRadius_.load(std::memory_order_acquire);
+
     // Load new chunks within radius
-    for (int dy = -vRadius_; dy <= vRadius_; ++dy) {
-        for (int dz = -radius_; dz <= radius_; ++dz) {
-            for (int dx = -radius_; dx <= radius_; ++dx) {
+    for (int dy = -vRadius; dy <= vRadius; ++dy) {
+        for (int dz = -radius; dz <= radius; ++dz) {
+            for (int dx = -radius; dx <= radius; ++dx) {
                 ChunkCoord cc{pcx + dx, pcy + dy, pcz + dz};
                 enqueueIfMissing(cc);
             }
@@ -126,11 +130,26 @@ void ChunkStreamer::tick(float playerX, float playerY, float playerZ) {
         int distZ = std::abs(cc.cz - pcz);
 
         // If the chunk is outside our radius + 1 buffer, delete it
-        if (distX > radius_ + 1 || distY > vRadius_ + 1 || distZ > radius_ + 1) {
+        if (distX > radius + 1 || distY > vRadius + 1 || distZ > radius + 1) {
             it = chunks_.erase(it); // Erase frees the memory and returns the next iterator
         } else {
             ++it;
         }
+    }
+
+    {
+        std::lock_guard<std::mutex> qlock(queueMutex_);
+        std::sort(queue_.begin(), queue_.end(), [&](const ChunkCoord& a, const ChunkCoord& b){
+            int distA = (a.cx - pcx) * (a.cx - pcx) +
+                        (a.cy - pcy) * (a.cy - pcy) +
+                        (a.cz - pcz) * (a.cz - pcz);
+            
+            int distB = (b.cx - pcx) * (b.cx - pcx) +
+                        (b.cy - pcy) * (b.cy - pcy) +
+                        (b.cz - pcz) * (b.cz - pcz);
+
+            return distA < distB;
+        });
     }
 }
 

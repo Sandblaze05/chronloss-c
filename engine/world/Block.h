@@ -47,6 +47,8 @@ public:
     static void init() {
         registerBlock(0, "Air").makeTransparent();
         registerBlock(1, "Stone").makeSolid().makeWalkable();
+        registerBlock(2, "Dirt").makeSolid().makeWalkable();
+        registerBlock(3, "Water").makeTransparent();
     }
 
     static Builder registerBlock(std::uint8_t id, const std::string& name) {
