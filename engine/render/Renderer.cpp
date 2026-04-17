@@ -6,8 +6,9 @@
 #include <sstream>
 #include <cmath>
 #include <limits>
+#include <algorithm>
 #include <GLFW/glfw3.h>
-// #include <engine/world/Block.h>
+#include <engine/world/Block.h>
 
 static GLuint compileShader(GLenum type, const char* src) {
 	GLuint id = glCreateShader(type);
@@ -261,6 +262,9 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
                           float deltaTime) {
     if (!m_Initialized) init();
 
+    m_LastDrawCallCount = 0;
+    m_LastVertexCount = 0;
+
     // clear color and depth
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -428,6 +432,66 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
     float MVP[16];
     mulMat(P, V, MVP);
 
+    // Build a ray from the mouse cursor and pick the hovered voxel.
+    m_HasHoveredBlock = false;
+    m_HasPlacementBlock = false;
+    if (width > 0 && height > 0) {
+        const float mouseX = std::clamp(static_cast<float>(m_LastMouseX), 0.0f, static_cast<float>(width - 1));
+        const float mouseY = std::clamp(static_cast<float>(m_LastMouseY), 0.0f, static_cast<float>(height - 1));
+
+        const float ndcX = (2.0f * (mouseX / static_cast<float>(width))) - 1.0f;
+        const float ndcY = 1.0f - (2.0f * (mouseY / static_cast<float>(height)));
+
+        const float tanHalfFov = std::tan(fovRadians * 0.5f);
+        float rayCamX = ndcX * aspect * tanHalfFov;
+        float rayCamY = ndcY * tanHalfFov;
+        float rayCamZ = -1.0f;
+        const float rayCamLen = std::sqrt(rayCamX * rayCamX + rayCamY * rayCamY + rayCamZ * rayCamZ);
+        if (rayCamLen > 0.0001f) {
+            rayCamX /= rayCamLen;
+            rayCamY /= rayCamLen;
+            rayCamZ /= rayCamLen;
+
+            float fwd[3] = { center[0] - eye[0], center[1] - eye[1], center[2] - eye[2] };
+            normalize(fwd);
+
+            float right[3];
+            cross(fwd, upv, right);
+            normalize(right);
+
+            float upRay[3];
+            cross(right, fwd, upRay);
+
+            float rayWorldX = right[0] * rayCamX + upRay[0] * rayCamY + fwd[0] * (-rayCamZ);
+            float rayWorldY = right[1] * rayCamX + upRay[1] * rayCamY + fwd[1] * (-rayCamZ);
+            float rayWorldZ = right[2] * rayCamX + upRay[2] * rayCamY + fwd[2] * (-rayCamZ);
+
+            const float rayWorldLen = std::sqrt(rayWorldX * rayWorldX + rayWorldY * rayWorldY + rayWorldZ * rayWorldZ);
+            if (rayWorldLen > 0.0001f) {
+                rayWorldX /= rayWorldLen;
+                rayWorldY /= rayWorldLen;
+                rayWorldZ /= rayWorldLen;
+
+                int hitX = 0, hitY = 0, hitZ = 0;
+                int placeX = 0, placeY = 0, placeZ = 0;
+                if (raycastVoxel(eye[0], eye[1], eye[2],
+                                 rayWorldX, rayWorldY, rayWorldZ,
+                                 24.0f, m_Streamer,
+                                 hitX, hitY, hitZ,
+                                 &placeX, &placeY, &placeZ)) {
+                    m_HasHoveredBlock = true;
+                    m_HoveredBlockX = hitX;
+                    m_HoveredBlockY = hitY;
+                    m_HoveredBlockZ = hitZ;
+                    m_HasPlacementBlock = true;
+                    m_PlacementBlockX = placeX;
+                    m_PlacementBlockY = placeY;
+                    m_PlacementBlockZ = placeZ;
+                }
+            }
+        }
+    }
+
     // DRAW THE INFINITE GRID FIRST (BACKGROUND)
     if (m_GridShader && m_QuadVAO) {
         glUseProgram(m_GridShader);
@@ -476,6 +540,8 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
 
         glBindVertexArray(m_QuadVAO);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        ++m_LastDrawCallCount;
+        m_LastVertexCount += 3;
         glBindVertexArray(0);
 
         // Restore state for the cube
@@ -499,7 +565,11 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
     if (ambLoc >= 0) glUniform1f(ambLoc, 1.0f);
 
     // Upload any pending meshes and render streamed chunks (with per-chunk transform)
-    m_Streamer.renderAll(MVP, m_Shader);
+    std::size_t chunkDrawCalls = 0;
+    std::size_t chunkVertexCount = 0;
+    m_Streamer.renderAll(MVP, m_Shader, &chunkDrawCalls, &chunkVertexCount);
+    m_LastDrawCallCount += chunkDrawCalls;
+    m_LastVertexCount += chunkVertexCount;
 
     // DRAW THE PLAYER AS TWO RED STACKED BLOCKS
     if (m_VAO && m_PlayerShader) {
@@ -537,6 +607,8 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
         if (locColor2 >= 0) glUniform3f(locColor2, 1.0f, 0.0f, 0.0f);
         glBindVertexArray(m_VAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        ++m_LastDrawCallCount;
+        m_LastVertexCount += 36;
         glBindVertexArray(0);
 
         // top block stacked above bottom
@@ -549,12 +621,121 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
         if (locColor2 >= 0) glUniform3f(locColor2, 1.0f, 0.0f, 0.0f);
         glBindVertexArray(m_VAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        ++m_LastDrawCallCount;
+        m_LastVertexCount += 36;
         glBindVertexArray(0);
         // restore chunk shader
+        glUseProgram(m_Shader);
+    }
+
+    // Draw hovered block outline last so it reads clearly on top of terrain.
+    if (m_HasHoveredBlock && m_VAO && m_PlayerShader) {
+        auto makeTranslate = [](float x, float y, float z, float out[16]) {
+            for (int i = 0; i < 16; ++i) out[i] = 0.0f;
+            out[0] = 1.0f; out[5] = 1.0f; out[10] = 1.0f; out[15] = 1.0f;
+            out[12] = x; out[13] = y; out[14] = z;
+        };
+        auto makeScale = [](float sx, float sy, float sz, float out[16]) {
+            for (int i = 0; i < 16; ++i) out[i] = 0.0f;
+            out[0] = sx; out[5] = sy; out[10] = sz; out[15] = 1.0f;
+        };
+
+        float T[16], S[16], M[16], MVP_model[16];
+        makeTranslate(static_cast<float>(m_HoveredBlockX) + 0.5f,
+                      static_cast<float>(m_HoveredBlockY) + 0.5f,
+                      static_cast<float>(m_HoveredBlockZ) + 0.5f,
+                      T);
+        makeScale(1.02f, 1.02f, 1.02f, S);
+        mulMat(T, S, M);
+        mulMat(MVP, M, MVP_model);
+
+        glUseProgram(m_PlayerShader);
+        GLint locMVP = glGetUniformLocation(m_PlayerShader, "MVP");
+        GLint locColor = glGetUniformLocation(m_PlayerShader, "color");
+        if (locMVP >= 0) glUniformMatrix4fv(locMVP, 1, GL_FALSE, MVP_model);
+        if (locColor >= 0) glUniform3f(locColor, 1.0f, 0.95f, 0.2f);
+
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glLineWidth(2.0f);
+        glBindVertexArray(m_VAO);
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        ++m_LastDrawCallCount;
+        m_LastVertexCount += 36;
+        glBindVertexArray(0);
+        glLineWidth(1.0f);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
         glUseProgram(m_Shader);
     }
 }
 
 void Renderer::endFrame() {
 	// nothing for now
+}
+
+bool Renderer::raycastVoxel(float startX, float startY, float startZ, float dirX, float dirY, float dirZ, float maxDistance, ChunkStreamer& streamer, int& outX, int& outY, int& outZ, int* outPlaceX, int* outPlaceY, int* outPlaceZ) {
+    float len = std::sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+    if (len < 0.0001f) return false;
+    dirX /= len; dirY /= len; dirZ /= len;
+
+    int mapX = static_cast<int>(std::floor(startX));
+    int mapY = static_cast<int>(std::floor(startY));
+    int mapZ = static_cast<int>(std::floor(startZ));
+
+    float deltaDistX = std::abs(1.0f / dirX);
+    float deltaDistY = std::abs(1.0f / dirY);
+    float deltaDistZ = std::abs(1.0f / dirZ);
+
+    int stepX = (dirX < 0) ? -1 : 1;
+    int stepY = (dirY < 0) ? -1 : 1;
+    int stepZ = (dirZ < 0) ? -1 : 1;
+
+    float sideDistX = (dirX < 0) ? (startX - mapX) * deltaDistX : (mapX + 1.0f - startX) * deltaDistX;
+    float sideDistY = (dirY < 0) ? (startY - mapY) * deltaDistY : (mapY + 1.0f - startY) * deltaDistY;
+    float sideDistZ = (dirZ < 0) ? (startZ - mapZ) * deltaDistZ : (mapZ + 1.0f - startZ) * deltaDistZ;
+
+    float currentDist = 0.0f;
+    int prevX = mapX;
+    int prevY = mapY;
+    int prevZ = mapZ;
+
+    while (currentDist <= maxDistance) {
+        std::uint8_t blockId = streamer.getBlockAtWorld(mapX, mapY, mapZ);
+        if (BlockRegistry::get(blockId).isSolid()) {
+            outX = mapX;
+            outY = mapY;
+            outZ = mapZ;
+            if (outPlaceX && outPlaceY && outPlaceZ) {
+                *outPlaceX = prevX;
+                *outPlaceY = prevY;
+                *outPlaceZ = prevZ;
+            }
+            return true;
+        }
+
+        if (sideDistX < sideDistY && sideDistX < sideDistZ) {
+            currentDist = sideDistX;
+            sideDistX += deltaDistX;
+            prevX = mapX;
+            prevY = mapY;
+            prevZ = mapZ;
+            mapX += stepX;
+        } else if (sideDistY < sideDistZ) {
+            currentDist = sideDistY;
+            sideDistY += deltaDistY;
+            prevX = mapX;
+            prevY = mapY;
+            prevZ = mapZ;
+            mapY += stepY;
+        } else {
+            currentDist = sideDistZ;
+            sideDistZ += deltaDistZ;
+            prevX = mapX;
+            prevY = mapY;
+            prevZ = mapZ;
+            mapZ += stepZ;
+        }
+    }
+
+    return false;
 }

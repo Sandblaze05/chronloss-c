@@ -8,8 +8,11 @@
 #include <condition_variable>
 #include <thread>
 #include <atomic>
+#include <cstddef>
 #include <glad/glad.h>
 #include "Chunk.h"
+
+#include <cstdint>
 
 struct ChunkCoord {
     int cx, cy, cz;
@@ -44,11 +47,15 @@ public:
     // The provided MVP should be projection * view; this method will apply
     // a per-chunk model translation so chunk vertices (0..kSize) render
     // at their world positions.
-    void renderAll(const float baseMVP[16], unsigned int shaderProgram);
+    void renderAll(const float baseMVP[16], unsigned int shaderProgram,
+                   std::size_t* outDrawCalls = nullptr,
+                   std::size_t* outVertexCount = nullptr);
 
     // Fetch a block by absolute world coordinates. Returns 0 (Air) if the chunk
     // containing the position is not loaded.
     std::uint8_t getBlockAtWorld(int worldX, int worldY, int worldZ);
+
+    void setBlockAtWorld(int worldX, int worldY, int worldZ, std::uint8_t blockId);
 
     // Returns true when the chunk containing this world position has generated voxel data.
     bool isBlockDataReadyAtWorld(int worldX, int worldY, int worldZ);
@@ -77,6 +84,14 @@ private:
     std::atomic<int> radius_ {8};
     // number of chunk layers vertically to load around player (0 = single Y layer)
     std::atomic<int> vRadius_ {0};
+    // accumulated load time in nanoseconds and number of loads
+    std::atomic<uint64_t> totalLoadNs_{0};
+    std::atomic<uint64_t> loadCount_{0};
+    // separate chunk generation and meshing timings
+    std::atomic<uint64_t> totalGenNs_{0};
+    std::atomic<uint64_t> genCount_{0};
+    std::atomic<uint64_t> totalMeshNs_{0};
+    std::atomic<uint64_t> meshCount_{0};
 
 public:
     // Runtime accessors to allow debugging / changing render distance
@@ -84,4 +99,37 @@ public:
     void setRadius(int r) { radius_.store(r, std::memory_order_release); }
     int getVerticalRadius() const { return vRadius_.load(std::memory_order_acquire); }
     void setVerticalRadius(int vr) { vRadius_.store(vr, std::memory_order_release); }
+
+    // Chunk load timing statistics (ms)
+    // Returns average chunk generation+mesh time in milliseconds.
+    double getAverageChunkLoadMs() const {
+        uint64_t count = loadCount_.load(std::memory_order_acquire);
+        if (count == 0) return 0.0;
+        uint64_t totalNs = totalLoadNs_.load(std::memory_order_acquire);
+        return static_cast<double>(totalNs) / 1e6 / static_cast<double>(count);
+    }
+
+    double getAverageChunkGenMs() const {
+        uint64_t count = genCount_.load(std::memory_order_acquire);
+        if (count == 0) return 0.0;
+        uint64_t totalNs = totalGenNs_.load(std::memory_order_acquire);
+        return static_cast<double>(totalNs) / 1e6 / static_cast<double>(count);
+    }
+
+    double getAverageChunkMeshMs() const {
+        uint64_t count = meshCount_.load(std::memory_order_acquire);
+        if (count == 0) return 0.0;
+        uint64_t totalNs = totalMeshNs_.load(std::memory_order_acquire);
+        return static_cast<double>(totalNs) / 1e6 / static_cast<double>(count);
+    }
+
+    // Reset accumulated timing stats
+    void resetLoadStats() {
+        totalLoadNs_.store(0, std::memory_order_release);
+        loadCount_.store(0, std::memory_order_release);
+        totalGenNs_.store(0, std::memory_order_release);
+        genCount_.store(0, std::memory_order_release);
+        totalMeshNs_.store(0, std::memory_order_release);
+        meshCount_.store(0, std::memory_order_release);
+    }
 };

@@ -9,7 +9,7 @@ void PhysicsSystem::update(PhysicsBody& body, float dt, ChunkStreamer& world) {
 }
 
 void PhysicsSystem::applyGravity(PhysicsBody& body, float dt) {
-    const float gravity = 25.0f;
+    const float gravity = 27.0f;
     body.vel[1] -= gravity * dt;
 }
 

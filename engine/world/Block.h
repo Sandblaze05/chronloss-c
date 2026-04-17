@@ -15,6 +15,7 @@ struct BlockData {
     std::string name = "Unknown";
     uint32_t flags = BLOCK_FLAG_NONE;
     int lightLevel = 0;
+    int toughness = 0;
 
     bool isSolid() const { return (flags & BLOCK_FLAG_SOLID) != 0; }
     bool isWalkable() const { return (flags & BLOCK_FLAG_WALKABLE) != 0; }
@@ -34,6 +35,7 @@ public:
         Builder& makeTransparent() { data_.flags |= BLOCK_FLAG_TRANSPARENT; return *this; }
 
         Builder& setLightLevel(int level) { data_.lightLevel = level; return *this; }
+        Builder& setToughness(int toughness) { data_.toughness = toughness; return *this; }
 
         ~Builder() {
             BlockRegistry::blocks_[id_] = data_;

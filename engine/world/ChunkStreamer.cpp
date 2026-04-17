@@ -1,8 +1,8 @@
 #include "ChunkStreamer.h"
 #include <GLFW/glfw3.h>
-#include <cmath>
 #include <cassert>
 #include <algorithm>
+#include <chrono>
 
 // splitmix64 for deterministic pseudo-random from coordinates
 static uint64_t splitmix64(uint64_t& x) {
@@ -162,7 +162,9 @@ void ChunkStreamer::renderAll() {
     }
 }
 
-void ChunkStreamer::renderAll(const float baseMVP[16], unsigned int shaderProgram) {
+void ChunkStreamer::renderAll(const float baseMVP[16], unsigned int shaderProgram,
+                              std::size_t* outDrawCalls,
+                              std::size_t* outVertexCount) {
     auto mulMat = [](const float a[16], const float b[16], float out[16]) {
         // out = a * b (column-major)
         for (int col = 0; col < 4; ++col) {
@@ -175,6 +177,9 @@ void ChunkStreamer::renderAll(const float baseMVP[16], unsigned int shaderProgra
             }
         }
     };
+
+    std::size_t drawCalls = 0;
+    std::size_t vertexCount = 0;
 
     std::lock_guard<std::mutex> lock(mapMutex_);
     for (auto& kv : chunks_) {
@@ -202,7 +207,18 @@ void ChunkStreamer::renderAll(const float baseMVP[16], unsigned int shaderProgra
             glUniformMatrix4fv(loc, 1, GL_FALSE, finalMVP);
         }
 
+        if (c->vertexCount_ > 0) {
+            ++drawCalls;
+            vertexCount += static_cast<std::size_t>(c->vertexCount_);
+        }
         c->render();
+    }
+
+    if (outDrawCalls) {
+        *outDrawCalls = drawCalls;
+    }
+    if (outVertexCount) {
+        *outVertexCount = vertexCount;
     }
 }
 
@@ -217,10 +233,24 @@ void ChunkStreamer::workerLoop() {
             queue_.pop_front();
         }
 
-        // generate temporary chunk data
+        // generate temporary chunk data and measure generation and mesh times separately
+        auto genStart = std::chrono::steady_clock::now();
         Chunk temp;
         generateBlocksForChunk(temp, work);
+        auto genEnd = std::chrono::steady_clock::now();
+
+        auto meshStart = std::chrono::steady_clock::now();
         std::vector<float> verts = temp.generateMesh();
+        auto meshEnd = std::chrono::steady_clock::now();
+
+        uint64_t genNs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(genEnd - genStart).count());
+        uint64_t meshNs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(meshEnd - meshStart).count());
+        totalGenNs_.fetch_add(genNs, std::memory_order_relaxed);
+        genCount_.fetch_add(1, std::memory_order_relaxed);
+        totalMeshNs_.fetch_add(meshNs, std::memory_order_relaxed);
+        meshCount_.fetch_add(1, std::memory_order_relaxed);
+        totalLoadNs_.fetch_add(genNs + meshNs, std::memory_order_relaxed);
+        loadCount_.fetch_add(1, std::memory_order_relaxed);
 
         // deliver vertices to the main-thread-owned chunk if still present
         std::lock_guard<std::mutex> lock(mapMutex_);
@@ -270,6 +300,47 @@ std::uint8_t ChunkStreamer::getBlockAtWorld(int worldX, int worldY, int worldZ) 
     int lz = worldZ - (cz * Chunk::kSizeZ);
 
     return it->second->getBlock(lx, ly, lz);
+}
+
+void ChunkStreamer::setBlockAtWorld(int worldX, int worldY, int worldZ, std::uint8_t blockId) {
+    int cx = static_cast<int>(std::floor(static_cast<float>(worldX) / Chunk::kSizeX));
+    int cy = static_cast<int>(std::floor(static_cast<float>(worldY) / Chunk::kSizeY));
+    int cz = static_cast<int>(std::floor(static_cast<float>(worldZ) / Chunk::kSizeZ));
+
+    int lx = worldX - (cx * Chunk::kSizeX);
+    int ly = worldY - (cy * Chunk::kSizeY);
+    int lz = worldZ - (cz * Chunk::kSizeZ);
+
+    auto updateChunkMesh = [&](int chunkX, int chunkY, int chunkZ) {
+        ChunkCoord cc{chunkX, chunkY, chunkZ};
+        std::lock_guard<std::mutex> lock(mapMutex_);
+        auto it = chunks_.find(cc);
+        if (it != chunks_.end() && it->second->hasVoxelData()) {
+            it->second->updateMesh();
+        }
+    };
+
+    {
+        ChunkCoord cc{cx, cy, cz};
+        std::lock_guard<std::mutex> lock(mapMutex_);
+        auto it = chunks_.find(cc);
+        if (it != chunks_.end() && it->second->hasVoxelData()) {
+            it->second->setBlock(lx, ly, lz, blockId);
+        } else {
+            return;
+        }
+    }
+
+    updateChunkMesh(cx, cy, cz);
+
+    if (lx == 0) updateChunkMesh(cx - 1, cy, cz);
+    else if (lx == Chunk::kSizeX - 1) updateChunkMesh(cx + 1, cy, cz);
+
+    if (ly == 0) updateChunkMesh(cx, cy - 1, cz);
+    else if (ly == Chunk::kSizeY - 1) updateChunkMesh(cx, cy + 1, cz);
+
+    if (lz == 0) updateChunkMesh(cx, cy, cz - 1);
+    else if (lz == Chunk::kSizeZ - 1) updateChunkMesh(cx, cy, cz + 1);
 }
 
 bool ChunkStreamer::isBlockDataReadyAtWorld(int worldX, int worldY, int worldZ) {
