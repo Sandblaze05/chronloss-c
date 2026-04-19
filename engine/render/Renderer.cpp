@@ -232,7 +232,8 @@ void Renderer::init() {
         std::cerr << "Failed to load player shader files: engine/assets/shaders/player.vert or .frag\n";
         m_PlayerShader = 0;
     }
-
+    // enable MSAA
+    glEnable(GL_MULTISAMPLE);
 	// enable depth test so cube renders correctly
 	glEnable(GL_DEPTH_TEST);
 

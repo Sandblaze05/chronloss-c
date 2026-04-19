@@ -39,6 +39,8 @@ void Application::run() {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     // Request the window to start maximized where supported
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    // request 4x MSAA buffer
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
     GLFWwindow* window = glfwCreateWindow(800, 600, "Chronloss-c", nullptr, nullptr);
 
