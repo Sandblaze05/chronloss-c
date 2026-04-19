@@ -15,7 +15,7 @@ struct BlockData {
     std::string name = "Unknown";
     uint32_t flags = BLOCK_FLAG_NONE;
     int lightLevel = 0;
-    int toughness = 0;
+    int toughness = 0; // -1 for unbreakable
 
     bool isSolid() const { return (flags & BLOCK_FLAG_SOLID) != 0; }
     bool isWalkable() const { return (flags & BLOCK_FLAG_WALKABLE) != 0; }
@@ -48,9 +48,10 @@ public:
 
     static void init() {
         registerBlock(0, "Air").makeTransparent();
-        registerBlock(1, "Stone").makeSolid().makeWalkable();
+        registerBlock(1, "Stone").makeSolid().makeWalkable().setToughness(10);
         registerBlock(2, "Dirt").makeSolid().makeWalkable();
         registerBlock(3, "Water").makeTransparent();
+        registerBlock(4, "Bedrock").makeSolid().makeWalkable().setToughness(-1);
     }
 
     static Builder registerBlock(std::uint8_t id, const std::string& name) {

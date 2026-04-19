@@ -10,6 +10,7 @@
 #include "engine/client/Player.h"
 #include "engine/Physics/PhysicsSystem.h"
 #include "engine/world/Block.h"
+#include "engine/world/WorldInteractionSystem.h"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -99,13 +100,10 @@ void Application::run() {
     constexpr float kPhysicsDt = 1.0f / 60.0f;
     constexpr int kMaxPhysicsStepsPerFrame = 5;
     constexpr int kSpawnSearchUp = 64;
-    constexpr float kBreakRepeatSeconds = 0.10f;
-    constexpr float kPlaceRepeatSeconds = 0.12f;
     PhysicsSystem physics;
+    WorldInteractionSystem worldInteraction;
     std::array<PhysicsBody*, 1> physicsBodies = { &player.body };
     bool spawnPrechecked = false;
-    float breakRepeatTimer = 0.0f;
-    float placeRepeatTimer = 0.0f;
 
     // Camera offsets control the camera position relative to the player.
     // Tweak these to change viewing angle and WASD orientation.
@@ -261,57 +259,35 @@ void Application::run() {
 
         const bool isLeftMousePressed = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
         const bool isRightMousePressed = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
-        breakRepeatTimer -= deltaTime;
-        placeRepeatTimer -= deltaTime;
+
+        ChunkStreamer& streamer = renderer.getStreamer();
+        double mouseX = 0.0;
+        double mouseY = 0.0;
+        glfwGetCursorPos(window, &mouseX, &mouseY);
+        worldInteraction.updateSelection(renderer.getLastCameraFrameData(),
+                                         mouseX,
+                                         mouseY,
+                                         player.getX(),
+                                         player.getY(),
+                                         player.getZ(),
+                                         streamer);
+
+        int highlightX = 0;
+        int highlightY = 0;
+        int highlightZ = 0;
+        if (worldInteraction.hasHoveredBlock()) {
+            worldInteraction.getHoveredBlock(highlightX, highlightY, highlightZ);
+            renderer.setHighlightBlock(true, highlightX, highlightY, highlightZ);
+        } else {
+            renderer.setHighlightBlock(false, 0, 0, 0);
+        }
 
         if (!ImGui::GetIO().WantCaptureMouse && !renderer.isOrbiting()) {
-            ChunkStreamer& streamer = renderer.getStreamer();
-
-            if (isLeftMousePressed && breakRepeatTimer <= 0.0f && renderer.hasHoveredBlock()) {
-                int hx = 0, hy = 0, hz = 0;
-                renderer.getHoveredBlock(hx, hy, hz);
-                streamer.setBlockAtWorld(hx, hy, hz, 0);
-                breakRepeatTimer = kBreakRepeatSeconds;
-            }
-
-            if (isRightMousePressed && placeRepeatTimer <= 0.0f && renderer.hasPlacementBlock()) {
-                int pxPlace = 0, pyPlace = 0, pzPlace = 0;
-                renderer.getPlacementBlock(pxPlace, pyPlace, pzPlace);
-
-                const std::uint8_t existingId = streamer.getBlockAtWorld(pxPlace, pyPlace, pzPlace);
-                const bool isTargetSolid = BlockRegistry::get(existingId).isSolid();
-
-                const float blockMinX = static_cast<float>(pxPlace);
-                const float blockMaxX = blockMinX + 1.0f;
-                const float blockMinY = static_cast<float>(pyPlace);
-                const float blockMaxY = blockMinY + 1.0f;
-                const float blockMinZ = static_cast<float>(pzPlace);
-                const float blockMaxZ = blockMinZ + 1.0f;
-
-                const float playerMinX = player.body.pos[0] - (player.body.width * 0.5f);
-                const float playerMaxX = player.body.pos[0] + (player.body.width * 0.5f);
-                const float playerMinY = player.body.pos[1];
-                const float playerMaxY = player.body.pos[1] + player.body.height;
-                const float playerMinZ = player.body.pos[2] - (player.body.width * 0.5f);
-                const float playerMaxZ = player.body.pos[2] + (player.body.width * 0.5f);
-
-                const bool overlapsPlayer =
-                    (blockMinX < playerMaxX && blockMaxX > playerMinX) &&
-                    (blockMinY < playerMaxY && blockMaxY > playerMinY) &&
-                    (blockMinZ < playerMaxZ && blockMaxZ > playerMinZ);
-
-                if (!isTargetSolid && !overlapsPlayer) {
-                    streamer.setBlockAtWorld(pxPlace, pyPlace, pzPlace, 1);
-                    placeRepeatTimer = kPlaceRepeatSeconds;
-                }
-            }
-        }
-
-        if (!isLeftMousePressed) {
-            breakRepeatTimer = 0.0f;
-        }
-        if (!isRightMousePressed) {
-            placeRepeatTimer = 0.0f;
+            worldInteraction.applyMouseActions(isLeftMousePressed,
+                                               isRightMousePressed,
+                                               deltaTime,
+                                               streamer,
+                                               player.body);
         }
 
         ImGui::Begin("Engine Debug");
@@ -349,6 +325,46 @@ void Application::run() {
             if (ImGui::SliderInt("Vertical Radius", &vert, 0, 6)) {
                 streamer.setVerticalRadius(vert);
             }
+        }
+        {
+            float range = worldInteraction.getInteractionRange();
+            if (ImGui::SliderFloat("Interaction Range", &range, 1.0f, 12.0f)) {
+                worldInteraction.setInteractionRange(range);
+            }
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Mining:");
+        if (worldInteraction.hasHoveredBlock()) {
+            int miningX = 0;
+            int miningY = 0;
+            int miningZ = 0;
+            worldInteraction.getHoveredBlock(miningX, miningY, miningZ);
+
+            const std::uint8_t miningBlockId = streamer.getBlockAtWorld(miningX, miningY, miningZ);
+            const BlockData& miningBlockData = BlockRegistry::get(miningBlockId);
+            const float miningProgress = worldInteraction.getMiningProgress();
+            const float blockToughness = static_cast<float>(miningBlockData.toughness);
+
+            ImGui::Text("Target: (%d, %d, %d)", miningX, miningY, miningZ);
+            ImGui::Text("Block: %s", miningBlockData.name.c_str());
+
+            if (blockToughness < 0.0f) {
+                ImGui::Text("Progress: Unbreakable");
+            } else if (blockToughness <= 0.0f) {
+                ImGui::Text("Progress: Instant");
+            } else {
+                float miningPercent = (miningProgress / blockToughness) * 100.0f;
+                if (miningPercent < 0.0f) miningPercent = 0.0f;
+                if (miningPercent > 100.0f) miningPercent = 100.0f;
+                ImGui::Text("Progress: %.2f / %.2f s (%.0f%%)",
+                            miningProgress,
+                            blockToughness,
+                            miningPercent);
+                ImGui::ProgressBar(miningPercent / 100.0f, ImVec2(0.0f, 0.0f));
+            }
+        } else {
+            ImGui::Text("Progress: No target");
         }
         ImGui::End();
 
