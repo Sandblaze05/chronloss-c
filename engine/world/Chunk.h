@@ -27,7 +27,7 @@ public:
     std::uint8_t getBlock(int x, int y, int z) const;
     void setBlock(int x, int y, int z, std::uint8_t id);
     std::vector<float> generateMesh();
-    void addFace(std::vector<float>& vertices, int x, int y, int z, FaceDirection face);
+    void addFace(std::vector<float>& vertices, int x, int y, int z, std::uint8_t blockId, FaceDirection face);
     void updateMesh();
     // Copy voxel data from another chunk instance (used by streamer worker output).
     void copyBlocksFrom(const Chunk& other);

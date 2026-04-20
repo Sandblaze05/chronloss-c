@@ -6,6 +6,7 @@ out vec4 FragColor;
 
 uniform vec3 color;
 uniform float ambientStrength;
+uniform sampler2D uAtlas;
 
 void main() {
     vec3 n = normalize(vNormal);
@@ -16,15 +17,8 @@ void main() {
     else if (abs(n.z) > 0.5) shade = 0.75; // front/back
     else shade = 0.6; // left/right
 
-    float edgeX = min(TexCoord.x, 1.0 - TexCoord.x);
-    float edgeY = min(TexCoord.y, 1.0 - TexCoord.y);
-    float minEdge = min(edgeX, edgeY);
-
-    vec3 finalColor = color * ambientStrength * shade;
-
-    if (minEdge < 0.01) {
-        finalColor = vec3(0.0, 0.0, 0.0);
-    }
+    vec3 texColor = texture(uAtlas, TexCoord).rgb;
+    vec3 finalColor = texColor * color * ambientStrength * shade;
 
     FragColor = vec4(finalColor, 1.0);
 }

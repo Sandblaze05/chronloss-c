@@ -9,6 +9,160 @@
 #include <algorithm>
 #include <GLFW/glfw3.h>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifdef APIENTRY
+#undef APIENTRY
+#endif
+#include <windows.h>
+#include <wincodec.h>
+#pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "ole32.lib")
+#endif
+
+namespace {
+
+#ifdef _WIN32
+GLuint loadTextureWicRgba8(const wchar_t* filePath) {
+    if (filePath == nullptr) {
+        return 0;
+    }
+
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool comInitialized = SUCCEEDED(hr);
+    if (hr == RPC_E_CHANGED_MODE) {
+        hr = S_OK;
+    }
+    if (FAILED(hr)) {
+        return 0;
+    }
+
+    IWICImagingFactory* factory = nullptr;
+    hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                          IID_PPV_ARGS(&factory));
+    if (FAILED(hr) || factory == nullptr) {
+        if (comInitialized) {
+            CoUninitialize();
+        }
+        return 0;
+    }
+
+    IWICBitmapDecoder* decoder = nullptr;
+    hr = factory->CreateDecoderFromFilename(filePath, nullptr, GENERIC_READ,
+                                            WICDecodeMetadataCacheOnDemand, &decoder);
+    if (FAILED(hr) || decoder == nullptr) {
+        factory->Release();
+        if (comInitialized) {
+            CoUninitialize();
+        }
+        return 0;
+    }
+
+    IWICBitmapFrameDecode* frame = nullptr;
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr) || frame == nullptr) {
+        decoder->Release();
+        factory->Release();
+        if (comInitialized) {
+            CoUninitialize();
+        }
+        return 0;
+    }
+
+    IWICFormatConverter* converter = nullptr;
+    hr = factory->CreateFormatConverter(&converter);
+    if (FAILED(hr) || converter == nullptr) {
+        frame->Release();
+        decoder->Release();
+        factory->Release();
+        if (comInitialized) {
+            CoUninitialize();
+        }
+        return 0;
+    }
+
+    hr = converter->Initialize(frame,
+                               GUID_WICPixelFormat32bppRGBA,
+                               WICBitmapDitherTypeNone,
+                               nullptr,
+                               0.0,
+                               WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        factory->Release();
+        if (comInitialized) {
+            CoUninitialize();
+        }
+        return 0;
+    }
+
+    UINT width = 0;
+    UINT height = 0;
+    hr = converter->GetSize(&width, &height);
+    if (FAILED(hr) || width == 0 || height == 0) {
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        factory->Release();
+        if (comInitialized) {
+            CoUninitialize();
+        }
+        return 0;
+    }
+
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+    hr = converter->CopyPixels(nullptr,
+                               width * 4,
+                               static_cast<UINT>(pixels.size()),
+                               pixels.data());
+    if (FAILED(hr)) {
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        factory->Release();
+        if (comInitialized) {
+            CoUninitialize();
+        }
+        return 0;
+    }
+
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D,
+                 0,
+                 GL_RGBA8,
+                 static_cast<GLsizei>(width),
+                 static_cast<GLsizei>(height),
+                 0,
+                 GL_RGBA,
+                 GL_UNSIGNED_BYTE,
+                 pixels.data());
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    converter->Release();
+    frame->Release();
+    decoder->Release();
+    factory->Release();
+    if (comInitialized) {
+        CoUninitialize();
+    }
+
+    return texture;
+}
+#endif
+
+} // namespace
+
 static GLuint compileShader(GLenum type, const char* src) {
 	GLuint id = glCreateShader(type);
 	glShaderSource(id, 1, &src, nullptr);
@@ -237,6 +391,15 @@ void Renderer::init() {
 	// enable depth test so cube renders correctly
 	glEnable(GL_DEPTH_TEST);
 
+#ifdef _WIN32
+    m_BlockAtlasTexture = loadTextureWicRgba8(L"engine/assets/textures/chronloss-textures.png");
+    if (m_BlockAtlasTexture == 0) {
+        std::cerr << "Failed to load block atlas: engine/assets/textures/chronloss-textures.png\n";
+    }
+#else
+    std::cerr << "Block atlas loading is currently implemented for Windows only.\n";
+#endif
+
     // chunk streamer will populate chunks on demand
 
 	m_Initialized = true;
@@ -252,8 +415,10 @@ void Renderer::shutdown() {
 	if (m_Shader) glDeleteProgram(m_Shader);
     if (m_PlayerShader) glDeleteProgram(m_PlayerShader);
 	if (m_GridShader) glDeleteProgram(m_GridShader);
+    if (m_BlockAtlasTexture) glDeleteTextures(1, &m_BlockAtlasTexture);
 	m_EBO = m_VBO = m_VAO = m_Shader = 0;
 	m_QuadVBO = m_QuadVAO = m_GridShader = 0;
+    m_BlockAtlasTexture = 0;
 	m_Initialized = false;
 }
 
@@ -517,6 +682,13 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
 
     GLint ambLoc = glGetUniformLocation(m_Shader, "ambientStrength");
     if (ambLoc >= 0) glUniform1f(ambLoc, 1.0f);
+
+    GLint atlasLoc = glGetUniformLocation(m_Shader, "uAtlas");
+    if (atlasLoc >= 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_BlockAtlasTexture);
+        glUniform1i(atlasLoc, 0);
+    }
 
     // Upload any pending meshes and render streamed chunks (with per-chunk transform)
     std::size_t chunkDrawCalls = 0;

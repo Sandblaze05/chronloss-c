@@ -52,6 +52,13 @@ public:
         registerBlock(2, "Dirt").makeSolid().makeWalkable();
         registerBlock(3, "Water").makeTransparent();
         registerBlock(4, "Bedrock").makeSolid().makeWalkable().setToughness(-1);
+        registerBlock(5, "Grass_Block").makeSolid().makeWalkable().setToughness(2);
+        registerBlock(6, "Sand").makeSolid().makeWalkable().setToughness(1);
+        registerBlock(7, "Sandstone").makeSolid().makeWalkable().setToughness(4);
+        registerBlock(8, "Gravel").makeSolid().makeWalkable().setToughness(2);
+        registerBlock(9, "Clay").makeSolid().makeWalkable().setToughness(3);
+        registerBlock(10, "Snow").makeSolid().makeWalkable().setToughness(1);
+        registerBlock(11, "Packed_Ice").makeSolid().makeWalkable().setToughness(5);
     }
 
     static Builder registerBlock(std::uint8_t id, const std::string& name) {

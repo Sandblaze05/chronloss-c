@@ -1,76 +1,9 @@
 #include "ChunkStreamer.h"
+#include "TerrainGenerationSystem.h"
 #include <GLFW/glfw3.h>
 #include <cassert>
 #include <algorithm>
 #include <chrono>
-
-// splitmix64 for deterministic pseudo-random from coordinates
-static uint64_t splitmix64(uint64_t& x) {
-    uint64_t z = (x += 0x9e3779b97f4a7c15ULL);
-    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
-    return z ^ (z >> 31);
-}
-
-static double coordNoise(std::uint64_t seed, int64_t x, int64_t y, int64_t z) {
-    uint64_t key = static_cast<uint64_t>(x) * 73856093u
-                 ^ static_cast<uint64_t>(y) * 19349663u
-                 ^ static_cast<uint64_t>(z) * 83492791u
-                 ^ seed;
-    uint64_t k = key;
-    uint64_t v = splitmix64(k);
-    return (v >> 11) * (1.0 / 9007199254740992.0); // 53-bit precision
-}
-
-static double fade(double t) {
-    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-}
-
-static double lerp(double a, double b, double t) {
-    return a + (b - a) * t;
-}
-
-static double gradientDot(std::uint64_t seed, int gridX, int gridZ, double dx, double dz) {
-    constexpr double kTau = 6.28318530717958647692;
-    double angle = coordNoise(seed, gridX, 0, gridZ) * kTau;
-    double gx = std::cos(angle);
-    double gz = std::sin(angle);
-    return (gx * dx) + (gz * dz);
-}
-
-static double perlin2D(std::uint64_t seed, double x, double z) {
-    int x0 = static_cast<int>(std::floor(x));
-    int z0 = static_cast<int>(std::floor(z));
-    int x1 = x0 + 1;
-    int z1 = z0 + 1;
-
-    double tx = x - static_cast<double>(x0);
-    double tz = z - static_cast<double>(z0);
-
-    double n00 = gradientDot(seed, x0, z0, tx, tz);
-    double n10 = gradientDot(seed, x1, z0, tx - 1.0, tz);
-    double n01 = gradientDot(seed, x0, z1, tx, tz - 1.0);
-    double n11 = gradientDot(seed, x1, z1, tx - 1.0, tz - 1.0);
-
-    double u = fade(tx);
-    double v = fade(tz);
-
-    double nx0 = lerp(n00, n10, u);
-    double nx1 = lerp(n01, n11, u);
-    return lerp(nx0, nx1, v);
-}
-
-static int sampleTerrainHeight(std::uint64_t seed, int worldX, int worldZ) {
-    constexpr double kNoiseScale = 1.0 / 48.0;
-    constexpr int kBaseHeight = 12;
-    constexpr int kHeightAmplitude = 10;
-
-    double noise = perlin2D(seed, worldX * kNoiseScale, worldZ * kNoiseScale);
-    double normalized = (noise + 0.7) / 1.4;
-    normalized = std::clamp(normalized, 0.0, 1.0);
-
-    return kBaseHeight + static_cast<int>(std::round(normalized * kHeightAmplitude));
-}
 
 ChunkStreamer::ChunkStreamer(std::uint64_t seed, int radius, int verticalRadius)
     : seed_(seed), radius_(radius), vRadius_(verticalRadius) {
@@ -236,7 +169,7 @@ void ChunkStreamer::workerLoop() {
         // generate temporary chunk data and measure generation and mesh times separately
         auto genStart = std::chrono::steady_clock::now();
         Chunk temp;
-        generateBlocksForChunk(temp, work);
+        TerrainGenerationSystem::generateChunkTerrain(seed_, temp, work.cx, work.cy, work.cz);
         auto genEnd = std::chrono::steady_clock::now();
 
         auto meshStart = std::chrono::steady_clock::now();
@@ -258,25 +191,6 @@ void ChunkStreamer::workerLoop() {
         if (it != chunks_.end()) {
             it->second->copyBlocksFrom(temp);
             it->second->setPendingMesh(std::move(verts));
-        }
-    }
-}
-
-void ChunkStreamer::generateBlocksForChunk(Chunk& chunk, const ChunkCoord& c) {
-    for (int y = 0; y < Chunk::kSizeY; ++y) {
-        for (int z = 0; z < Chunk::kSizeZ; ++z) {
-            for (int x = 0; x < Chunk::kSizeX; ++x) {
-                const int worldX = (c.cx * Chunk::kSizeX) + x;
-                const int worldY = (c.cy * Chunk::kSizeY) + y;
-                const int worldZ = (c.cz * Chunk::kSizeZ) + z;
-                const int terrainHeight = sampleTerrainHeight(seed_, worldX, worldZ);
-
-                if (worldY <= terrainHeight) {
-                    chunk.setBlock(x, y, z, 1);
-                } else {
-                    chunk.setBlock(x, y, z, 0);
-                }
-            }
         }
     }
 }

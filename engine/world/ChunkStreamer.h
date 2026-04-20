@@ -68,7 +68,6 @@ public:
 private:
     void workerLoop();
     void enqueueIfMissing(const ChunkCoord& c);
-    void generateBlocksForChunk(Chunk& chunk, const ChunkCoord& c);
 
     std::unordered_map<ChunkCoord, std::unique_ptr<Chunk>, ChunkCoordHash> chunks_;
     std::mutex mapMutex_;
@@ -95,6 +94,7 @@ private:
 
 public:
     // Runtime accessors to allow debugging / changing render distance
+    std::uint64_t getSeed() const { return seed_; }
     int getRadius() const { return radius_.load(std::memory_order_acquire); }
     void setRadius(int r) { radius_.store(r, std::memory_order_release); }
     int getVerticalRadius() const { return vRadius_.load(std::memory_order_acquire); }

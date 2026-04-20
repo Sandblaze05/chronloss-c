@@ -39,6 +39,7 @@ private:
 
     GLuint m_GridShader = 0;
     GLuint m_PlayerShader = 0;
+    GLuint m_BlockAtlasTexture = 0;
     // camera params
     float m_Zoom = 1.8f; // orthographic half-extent
     float m_Yaw = 45.0f * 3.14159265f / 180.0f;   // radians
