@@ -49,7 +49,7 @@ public:
     static void init() {
         registerBlock(0, "Air").makeTransparent();
         registerBlock(1, "Stone").makeSolid().makeWalkable().setToughness(10);
-        registerBlock(2, "Dirt").makeSolid().makeWalkable();
+        registerBlock(2, "Dirt").makeSolid().makeWalkable().setToughness(2);
         registerBlock(3, "Water").makeTransparent();
         registerBlock(4, "Bedrock").makeSolid().makeWalkable().setToughness(-1);
         registerBlock(5, "Grass_Block").makeSolid().makeWalkable().setToughness(2);

@@ -123,10 +123,9 @@ void Chunk::addFace(std::vector<float>& vertices, int x, int y, int z, std::uint
     float fz = static_cast<float>(z);
 
     const auto [tileX, tileY] = atlasTileForBlockFace(blockId, face);
-    const bool rotateGrassSide = (blockId == 5) &&
-                                 (face == FACE_LEFT || face == FACE_RIGHT ||
-                                  face == FACE_FRONT || face == FACE_BACK);
-    const auto uvs = faceUvsForTile(tileX, tileY, rotateGrassSide);
+    const bool rotateSideFace = (face == FACE_LEFT || face == FACE_RIGHT ||
+                                 face == FACE_FRONT || face == FACE_BACK);
+    const auto uvs = faceUvsForTile(tileX, tileY, rotateSideFace);
 
     // nx, ny, nz per face
     float nx = 0, ny = 0, nz = 0;
@@ -217,6 +216,11 @@ std::vector<float> Chunk::generateMesh() {
             // but do cull against other solid blocks.
             return BlockRegistry::get(neighborId).isSolid() && neighborId != 16;
         }
+
+        if (neighborId == 18 || neighborId == 17) {
+            return false;
+        }
+        
         return BlockRegistry::get(neighborId).isSolid();
     };
 
@@ -229,48 +233,55 @@ std::vector<float> Chunk::generateMesh() {
                 }
 
                 if (blockId == 17) {
-                    // Tall grass is a cross model
+                    // Tall grass is a cross model (centered in the block)
                     float fx = static_cast<float>(x);
                     float fy = static_cast<float>(y);
                     float fz = static_cast<float>(z);
+                    float cx = fx + 0.5f;  // center X
+                    float cz = fz + 0.5f;  // center Z
+                    float r = 0.4f;  // half-width from center
+                    
                     const auto [tileX, tileY] = atlasTileForBlockFace(17, FACE_FRONT);
-                    const auto uvs = faceUvsForTile(tileX, tileY, false);
+                    const auto uvs = faceUvsForTile(tileX, tileY, true);
 
                     auto push = [&](float px, float py, float pz, float nx, float ny, float nz, int uvi) {
                         vertices.insert(vertices.end(), {px, py, pz, nx, ny, nz, uvs[static_cast<std::size_t>(uvi)][0], uvs[static_cast<std::size_t>(uvi)][1]});
                     };
 
-                    // Quad 1 (diagonal /)
-                    push(fx, fy, fz, 0.707f, 0.0f, -0.707f, 5);
-                    push(fx+1, fy, fz+1, 0.707f, 0.0f, -0.707f, 0);
-                    push(fx+1, fy+1, fz+1, 0.707f, 0.0f, -0.707f, 1);
-                    push(fx+1, fy+1, fz+1, 0.707f, 0.0f, -0.707f, 2);
-                    push(fx, fy+1, fz, 0.707f, 0.0f, -0.707f, 3);
-                    push(fx, fy, fz, 0.707f, 0.0f, -0.707f, 4);
+                    // Quad 1: left-right orientation (perpendicular to camera when looking north/south)
+                    // Front face
+                    push(cx - r, fy, cz, 0.0f, 0.0f, 1.0f, 0);
+                    push(cx + r, fy, cz, 0.0f, 0.0f, 1.0f, 1);
+                    push(cx + r, fy + 1, cz, 0.0f, 0.0f, 1.0f, 2);
+                    push(cx + r, fy + 1, cz, 0.0f, 0.0f, 1.0f, 3);
+                    push(cx - r, fy + 1, cz, 0.0f, 0.0f, 1.0f, 4);
+                    push(cx - r, fy, cz, 0.0f, 0.0f, 1.0f, 5);
+                    
+                    // Back face
+                    push(cx + r, fy, cz, 0.0f, 0.0f, -1.0f, 0);
+                    push(cx - r, fy, cz, 0.0f, 0.0f, -1.0f, 1);
+                    push(cx - r, fy + 1, cz, 0.0f, 0.0f, -1.0f, 2);
+                    push(cx - r, fy + 1, cz, 0.0f, 0.0f, -1.0f, 3);
+                    push(cx + r, fy + 1, cz, 0.0f, 0.0f, -1.0f, 4);
+                    push(cx + r, fy, cz, 0.0f, 0.0f, -1.0f, 5);
 
-                    // Quad 1 backface (required since culling is typically on, or just push opposite normals)
-                    push(fx+1, fy, fz+1, -0.707f, 0.0f, 0.707f, 5);
-                    push(fx, fy, fz, -0.707f, 0.0f, 0.707f, 0);
-                    push(fx, fy+1, fz, -0.707f, 0.0f, 0.707f, 1);
-                    push(fx, fy+1, fz, -0.707f, 0.0f, 0.707f, 2);
-                    push(fx+1, fy+1, fz+1, -0.707f, 0.0f, 0.707f, 3);
-                    push(fx+1, fy, fz+1, -0.707f, 0.0f, 0.707f, 4);
-
-                    // Quad 2 (diagonal \)
-                    push(fx+1, fy, fz, -0.707f, 0.0f, -0.707f, 5);
-                    push(fx, fy, fz+1, -0.707f, 0.0f, -0.707f, 0);
-                    push(fx, fy+1, fz+1, -0.707f, 0.0f, -0.707f, 1);
-                    push(fx, fy+1, fz+1, -0.707f, 0.0f, -0.707f, 2);
-                    push(fx+1, fy+1, fz, -0.707f, 0.0f, -0.707f, 3);
-                    push(fx+1, fy, fz, -0.707f, 0.0f, -0.707f, 4);
-
-                    // Quad 2 backface
-                    push(fx, fy, fz+1, 0.707f, 0.0f, 0.707f, 5);
-                    push(fx+1, fy, fz, 0.707f, 0.0f, 0.707f, 0);
-                    push(fx+1, fy+1, fz, 0.707f, 0.0f, 0.707f, 1);
-                    push(fx+1, fy+1, fz, 0.707f, 0.0f, 0.707f, 2);
-                    push(fx, fy+1, fz+1, 0.707f, 0.0f, 0.707f, 3);
-                    push(fx, fy, fz+1, 0.707f, 0.0f, 0.707f, 4);
+                    // Quad 2: front-back orientation (perpendicular to camera when looking east/west)
+                    // Right face
+                    push(cx, fy, cz - r, 1.0f, 0.0f, 0.0f, 0);
+                    push(cx, fy, cz + r, 1.0f, 0.0f, 0.0f, 1);
+                    push(cx, fy + 1, cz + r, 1.0f, 0.0f, 0.0f, 2);
+                    push(cx, fy + 1, cz + r, 1.0f, 0.0f, 0.0f, 3);
+                    push(cx, fy + 1, cz - r, 1.0f, 0.0f, 0.0f, 4);
+                    push(cx, fy, cz - r, 1.0f, 0.0f, 0.0f, 5);
+                    
+                    // Left face
+                    push(cx, fy, cz + r, -1.0f, 0.0f, 0.0f, 0);
+                    push(cx, fy, cz - r, -1.0f, 0.0f, 0.0f, 1);
+                    push(cx, fy + 1, cz - r, -1.0f, 0.0f, 0.0f, 2);
+                    push(cx, fy + 1, cz - r, -1.0f, 0.0f, 0.0f, 3);
+                    push(cx, fy + 1, cz + r, -1.0f, 0.0f, 0.0f, 4);
+                    push(cx, fy, cz + r, -1.0f, 0.0f, 0.0f, 5);
+                    
                     continue;
                 }
 
@@ -281,13 +292,16 @@ std::vector<float> Chunk::generateMesh() {
                     float fz = static_cast<float>(z);
                     const float m = 1.0f / 16.0f; // margin
                     
-                    auto emitCactusFace = [&](FaceDirection face, float nx, float ny, float nz) {
-                        const auto [tileX, tileY] = atlasTileForBlockFace(18, face);
-                        const auto uvs = faceUvsForTile(tileX, tileY, false);
+                    // Decouple geometry face from texture face to allow overriding
+                    auto emitCactusFace = [&](FaceDirection geoFace, FaceDirection texFace, float nx, float ny, float nz) {
+                        const auto [tileX, tileY] = atlasTileForBlockFace(18, texFace);
+                        const bool rotateTexture = (geoFace == FACE_LEFT || geoFace == FACE_RIGHT ||
+                                                    geoFace == FACE_FRONT || geoFace == FACE_BACK);
+                        const auto uvs = faceUvsForTile(tileX, tileY, rotateTexture);
                         auto push = [&](float px, float py, float pz, int uvi) {
                             vertices.insert(vertices.end(), {px, py, pz, nx, ny, nz, uvs[static_cast<std::size_t>(uvi)][0], uvs[static_cast<std::size_t>(uvi)][1]});
                         };
-                        switch(face) {
+                        switch(geoFace) {
                             case FACE_TOP:
                                 push(fx+m,   fy+1, fz+m,   0);
                                 push(fx+1-m, fy+1, fz+m,   1);
@@ -339,27 +353,28 @@ std::vector<float> Chunk::generateMesh() {
                         }
                     };
 
-                    auto occluded = [&](std::uint8_t neighborId) {
-                        // Cactus doesn't cull against anything except itself vertically (handled explicitly)
-                        return false;
-                    };
-
-                    emitCactusFace(FACE_LEFT, -1, 0, 0);
-                    emitCactusFace(FACE_RIGHT, 1, 0, 0);
-                    emitCactusFace(FACE_FRONT, 0, 0, 1);
-                    emitCactusFace(FACE_BACK, 0, 0, -1);
+                    // Side faces remain normal
+                    emitCactusFace(FACE_LEFT,  FACE_LEFT,  -1, 0, 0);
+                    emitCactusFace(FACE_RIGHT, FACE_RIGHT,  1, 0, 0);
+                    emitCactusFace(FACE_FRONT, FACE_FRONT,  0, 0, 1);
+                    emitCactusFace(FACE_BACK,  FACE_BACK,   0, 0, -1);
                     
                     std::uint8_t topNeighbor = getBlock(x, y + 1, z);
                     if (topNeighbor != 18) {
-                        emitCactusFace(FACE_TOP, 0, 1, 0);
+                        // Absolute top of the cactus: Use normal spiked top texture
+                        emitCactusFace(FACE_TOP, FACE_TOP, 0, 1, 0);
+                    } else {
+                        // Mid/Bottom segment: Render the top face geometry to seal the view, 
+                        // but paint it with the FACE_BOTTOM (cross section) texture
+                        emitCactusFace(FACE_TOP, FACE_BOTTOM, 0, 1, 0);
                     }
+                    
                     std::uint8_t bottomNeighbor = getBlock(x, y - 1, z);
                     if (bottomNeighbor != 18 && bottomNeighbor != 0) {
-                        emitCactusFace(FACE_BOTTOM, 0, -1, 0);
+                        emitCactusFace(FACE_BOTTOM, FACE_BOTTOM, 0, -1, 0);
                     }
                     continue;
                 }
-
                 // right face (x + 1)
                 if (!isFaceOccluded(blockId, getBlock(x + 1, y, z))) {
                     addFace(vertices, x, y, z, blockId, FACE_RIGHT);
