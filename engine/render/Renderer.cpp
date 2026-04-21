@@ -22,6 +22,14 @@
 #pragma comment(lib, "ole32.lib")
 #endif
 
+#ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#endif
+
+#ifndef GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
+#endif
+
 namespace {
 
 #ifdef _WIN32
@@ -211,6 +219,83 @@ Renderer::~Renderer() {
 	shutdown();
 }
 
+void Renderer::setMsaaEnabled(bool enabled) {
+    m_MsaaEnabled = enabled;
+    if (!m_Initialized) {
+        return;
+    }
+    if (m_MsaaEnabled) {
+        glEnable(GL_MULTISAMPLE);
+    } else {
+        glDisable(GL_MULTISAMPLE);
+    }
+}
+
+void Renderer::setRequestedMsaaSamples(int samples) {
+    m_RequestedMsaaSamples = std::clamp(samples, 0, 16);
+}
+
+void Renderer::setAnisotropicFilteringEnabled(bool enabled) {
+    m_AnisotropicFilteringEnabled = enabled;
+    if (m_Initialized) {
+        applyAtlasSamplingSettings();
+    }
+}
+
+void Renderer::setAnisotropyLevel(float level) {
+    const float maxLevel = std::max(1.0f, m_MaxSupportedAnisotropy);
+    m_AnisotropyLevel = std::clamp(level, 1.0f, maxLevel);
+    if (m_Initialized) {
+        applyAtlasSamplingSettings();
+    }
+}
+
+void Renderer::queryAnisotropySupport() {
+    m_AnisotropySupported = false;
+    m_MaxSupportedAnisotropy = 1.0f;
+
+    const bool hasExt = glfwExtensionSupported("GL_EXT_texture_filter_anisotropic") == GLFW_TRUE;
+    const bool hasArb = glfwExtensionSupported("GL_ARB_texture_filter_anisotropic") == GLFW_TRUE;
+    if (!hasExt && !hasArb) {
+        return;
+    }
+
+#if defined(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT)
+    GLfloat maxAniso = 1.0f;
+    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAniso);
+    if (maxAniso > 1.0f) {
+        m_AnisotropySupported = true;
+        m_MaxSupportedAnisotropy = std::max(1.0f, static_cast<float>(maxAniso));
+        m_AnisotropyLevel = std::clamp(m_AnisotropyLevel, 1.0f, m_MaxSupportedAnisotropy);
+    }
+#endif
+}
+
+void Renderer::applyAtlasSamplingSettings() {
+    if (m_BlockAtlasTexture == 0) {
+        return;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, m_BlockAtlasTexture);
+
+    if (m_AnisotropicFilteringEnabled && m_AnisotropySupported) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+#if defined(GL_TEXTURE_MAX_ANISOTROPY_EXT)
+        const float anisotropy = std::clamp(m_AnisotropyLevel, 1.0f, m_MaxSupportedAnisotropy);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, anisotropy);
+#endif
+    } else {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+#if defined(GL_TEXTURE_MAX_ANISOTROPY_EXT)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.0f);
+#endif
+    }
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 void Renderer::onScroll(double xoffset, double yoffset) {
 	// yoffset is vertical scroll (positive means scroll up) — zoom in when scrolling up
 	m_Zoom -= static_cast<float>(yoffset) * 0.25f;
@@ -386,8 +471,12 @@ void Renderer::init() {
         std::cerr << "Failed to load player shader files: engine/assets/shaders/player.vert or .frag\n";
         m_PlayerShader = 0;
     }
-    // enable MSAA
-    glEnable(GL_MULTISAMPLE);
+    // enable/disable MSAA based on runtime settings
+    if (m_MsaaEnabled) {
+        glEnable(GL_MULTISAMPLE);
+    } else {
+        glDisable(GL_MULTISAMPLE);
+    }
 	// enable depth test so cube renders correctly
 	glEnable(GL_DEPTH_TEST);
 
@@ -395,6 +484,9 @@ void Renderer::init() {
     m_BlockAtlasTexture = loadTextureWicRgba8(L"engine/assets/textures/chronloss-textures.png");
     if (m_BlockAtlasTexture == 0) {
         std::cerr << "Failed to load block atlas: engine/assets/textures/chronloss-textures.png\n";
+    } else {
+        queryAnisotropySupport();
+        applyAtlasSamplingSettings();
     }
 #else
     std::cerr << "Block atlas loading is currently implemented for Windows only.\n";

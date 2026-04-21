@@ -37,12 +37,14 @@ void Application::shutdown() {
 }
 
 void Application::run() {
+    int requestedMsaaSamples = 4;
+
     // Create a non-resizable, maximized window
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     // Request the window to start maximized where supported
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
-    // request 4x MSAA buffer
-    glfwWindowHint(GLFW_SAMPLES, 4);
+    // request a multisample buffer (actual sample count is chosen by the driver)
+    glfwWindowHint(GLFW_SAMPLES, requestedMsaaSamples);
 
     GLFWwindow* window = glfwCreateWindow(800, 600, "Chronloss-c", nullptr, nullptr);
 
@@ -64,6 +66,7 @@ void Application::run() {
 
     Player player(0.0f, 1.0f, 0.0f);
     Renderer renderer;
+    renderer.setRequestedMsaaSamples(requestedMsaaSamples);
 
     // Initialize block registry once
     BlockRegistry::init();
@@ -363,6 +366,35 @@ void Application::run() {
         ImGui::Text("Chunk mesh time: %.2f", renderer.getStreamer().getAverageChunkMeshMs());
         ImGui::Text("Draw calls: %zu", renderer.getLastDrawCallCount());
         ImGui::Text("Vertex count: %zu", renderer.getLastVertexCount());
+        ImGui::Separator();
+        ImGui::Text("Graphics:");
+        {
+            bool msaaEnabled = renderer.getMsaaEnabled();
+            if (ImGui::Checkbox("MSAA Enabled", &msaaEnabled)) {
+                renderer.setMsaaEnabled(msaaEnabled);
+            }
+
+            int msaaSamples = renderer.getRequestedMsaaSamples();
+            if (ImGui::SliderInt("MSAA Samples", &msaaSamples, 0, 16)) {
+                renderer.setRequestedMsaaSamples(msaaSamples);
+            }
+            ImGui::Text("MSAA sample count applies on next app start.");
+
+            bool anisoEnabled = renderer.getAnisotropicFilteringEnabled();
+            if (ImGui::Checkbox("Anisotropic Filtering", &anisoEnabled)) {
+                renderer.setAnisotropicFilteringEnabled(anisoEnabled);
+            }
+
+            if (renderer.isAnisotropySupported()) {
+                float anisoLevel = renderer.getAnisotropyLevel();
+                if (ImGui::SliderFloat("Anisotropy Level", &anisoLevel, 1.0f, renderer.getMaxSupportedAnisotropy())) {
+                    renderer.setAnisotropyLevel(anisoLevel);
+                }
+                ImGui::Text("Max anisotropy: %.1fx", renderer.getMaxSupportedAnisotropy());
+            } else {
+                ImGui::Text("Anisotropic filtering not supported by this GPU/driver.");
+            }
+        }
         ImGui::Separator();
         ImGui::Text("World State:");
         ImGui::Text("Loaded Chunks: %zu", renderer.getLoadedChunkCount());

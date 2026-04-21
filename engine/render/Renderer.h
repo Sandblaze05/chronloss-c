@@ -28,6 +28,8 @@ public:
 private:
     void init();
     void shutdown();
+    void queryAnisotropySupport();
+    void applyAtlasSamplingSettings();
 
     GLuint m_VAO = 0;
     GLuint m_VBO = 0;
@@ -72,6 +74,13 @@ private:
     std::size_t m_LastDrawCallCount = 0;
     std::size_t m_LastVertexCount = 0;
 
+    bool m_MsaaEnabled = true;
+    int m_RequestedMsaaSamples = 4;
+    bool m_AnisotropySupported = false;
+    bool m_AnisotropicFilteringEnabled = true;
+    float m_MaxSupportedAnisotropy = 1.0f;
+    float m_AnisotropyLevel = 8.0f;
+
     
 public:
     size_t getLoadedChunkCount() {
@@ -102,5 +111,17 @@ public:
 
     std::size_t getLastDrawCallCount() const { return m_LastDrawCallCount; }
     std::size_t getLastVertexCount() const { return m_LastVertexCount; }
+
+    bool getMsaaEnabled() const { return m_MsaaEnabled; }
+    void setMsaaEnabled(bool enabled);
+    int getRequestedMsaaSamples() const { return m_RequestedMsaaSamples; }
+    void setRequestedMsaaSamples(int samples);
+
+    bool isAnisotropySupported() const { return m_AnisotropySupported; }
+    bool getAnisotropicFilteringEnabled() const { return m_AnisotropicFilteringEnabled; }
+    void setAnisotropicFilteringEnabled(bool enabled);
+    float getMaxSupportedAnisotropy() const { return m_MaxSupportedAnisotropy; }
+    float getAnisotropyLevel() const { return m_AnisotropyLevel; }
+    void setAnisotropyLevel(float level);
 
 };
