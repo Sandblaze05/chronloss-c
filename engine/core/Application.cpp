@@ -474,11 +474,11 @@ void Application::run() {
             };
 
             auto applyAlpinePreset = [](TerrainGenerationSystem::TerrainGenConfig& cfg) {
-                cfg.mountainTemperatureThreshold = 0.34;
+                cfg.mountainTemperatureThreshold = 0.44;
                 cfg.mountainMoistureThreshold = 0.42;
 
                 cfg.mountains.baseHeight = 82;
-                cfg.mountains.heightAmplitude = 102;
+                cfg.mountains.heightAmplitude = 110;
                 cfg.mountains.fillerDepth = 5;
 
                 cfg.macroScale = 1.0 / 720.0;
@@ -494,16 +494,16 @@ void Application::run() {
                 cfg.blendRadius = 12;
                 cfg.blendWeights = {{0.70, 0.075, 0.075, 0.075, 0.075}};
 
-                cfg.overhangBandHalfWidth = 36.0;
+                cfg.overhangBandHalfWidth = 18.0;
                 cfg.overhangScale = 1.0 / 48.0;
-                cfg.overhangStrength = 23.0;
+                cfg.overhangStrength = 12.0;
 
                 cfg.snowStartY = 134;
                 cfg.mountainStoneStartY = 118;
             };
 
             auto applyHighlandsPreset = [](TerrainGenerationSystem::TerrainGenConfig& cfg) {
-                cfg.mountainTemperatureThreshold = 0.33;
+                cfg.mountainTemperatureThreshold = 0.44;
                 cfg.mountainMoistureThreshold = 0.40;
 
                 cfg.mountains.baseHeight = 86;
@@ -523,9 +523,9 @@ void Application::run() {
                 cfg.blendRadius = 20;
                 cfg.blendWeights = {{0.60, 0.10, 0.10, 0.10, 0.10}};
 
-                cfg.overhangBandHalfWidth = 28.0;
+                cfg.overhangBandHalfWidth = 18.0;
                 cfg.overhangScale = 1.0 / 56.0;
-                cfg.overhangStrength = 14.0;
+                cfg.overhangStrength = 10.0;
 
                 cfg.snowStartY = 124;
                 cfg.mountainStoneStartY = 108;
@@ -558,6 +558,10 @@ void Application::run() {
             if (ImGui::CollapsingHeader("Biome Classification", ImGuiTreeNodeFlags_DefaultOpen)) {
                 worldGenDirty |= sliderDouble("Temp Scale", worldGenConfig.tempScale, 0.0001f, 0.01f);
                 worldGenDirty |= sliderDouble("Moisture Scale", worldGenConfig.moistureScale, 0.0001f, 0.01f);
+                worldGenDirty |= sliderDouble("Continentalness Scale", worldGenConfig.continentalnessScale, 0.0001f, 0.01f);
+                worldGenDirty |= sliderDouble("Ocean Threshold", worldGenConfig.oceanThreshold, 0.0f, 1.0f);
+                worldGenDirty |= sliderDouble("Beach Threshold", worldGenConfig.beachThreshold, 0.0f, 1.0f);
+                worldGenDirty |= sliderDouble("Biome Noise Contrast", worldGenConfig.biomeNoiseContrast, 0.1f, 2.0f);
                 worldGenDirty |= sliderDouble("Desert Temp Threshold", worldGenConfig.desertTemperatureThreshold, 0.0f, 1.0f);
                 worldGenDirty |= sliderDouble("Desert Moisture Threshold", worldGenConfig.desertMoistureThreshold, 0.0f, 1.0f);
                 worldGenDirty |= sliderDouble("Mountain Temp Threshold", worldGenConfig.mountainTemperatureThreshold, 0.0f, 1.0f);
@@ -567,12 +571,16 @@ void Application::run() {
             }
 
             if (ImGui::CollapsingHeader("Biome Profiles", ImGuiTreeNodeFlags_DefaultOpen)) {
+                worldGenDirty |= editBiomeProfile("Ocean", worldGenConfig.ocean);
+                worldGenDirty |= editBiomeProfile("Beach", worldGenConfig.beach);
                 worldGenDirty |= editBiomeProfile("Desert", worldGenConfig.desert);
+                worldGenDirty |= editBiomeProfile("Savanna", worldGenConfig.savanna);
                 worldGenDirty |= editBiomeProfile("Plains", worldGenConfig.plains);
                 worldGenDirty |= editBiomeProfile("Forest", worldGenConfig.forest);
+                worldGenDirty |= editBiomeProfile("Swamp", worldGenConfig.swamp);
+                worldGenDirty |= editBiomeProfile("Taiga", worldGenConfig.taiga);
                 worldGenDirty |= editBiomeProfile("Mountains", worldGenConfig.mountains);
                 worldGenDirty |= editBiomeProfile("Tundra", worldGenConfig.tundra);
-                worldGenDirty |= editBiomeProfile("Swamp", worldGenConfig.swamp);
             }
 
             if (ImGui::CollapsingHeader("Terrain Shape", ImGuiTreeNodeFlags_DefaultOpen)) {

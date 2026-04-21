@@ -17,8 +17,11 @@ void main() {
     else if (abs(n.z) > 0.5) shade = 0.75; // front/back
     else shade = 0.6; // left/right
 
-    vec3 texColor = texture(uAtlas, TexCoord).rgb;
-    vec3 finalColor = texColor * color * ambientStrength * shade;
+    vec4 texColor = texture(uAtlas, TexCoord);
+    if (texColor.a < 0.5) {
+        discard;
+    }
+    vec3 finalColor = texColor.rgb * color * ambientStrength * shade;
 
     FragColor = vec4(finalColor, 1.0);
 }

@@ -9,12 +9,16 @@ class Chunk;
 namespace TerrainGenerationSystem {
 
 enum class BiomeType {
+    Ocean,
+    Beach,
     Desert,
+    Savanna,
     Plains,
     Forest,
-    Mountains,
+    Swamp,
+    Taiga,
     Tundra,
-    Swamp
+    Mountains
 };
 
 struct TerrainDebugSample {
@@ -43,38 +47,69 @@ struct OreConfig {
     bool enabled = true;
 };
 
-struct TerrainGenConfig {
-    double tempScale = 1.0 / 1024.0;
-    double moistureScale = 1.0 / 896.0;
-    double desertTemperatureThreshold = 0.72;
-    double desertMoistureThreshold = 0.34;
-    double mountainTemperatureThreshold = 0.28;
-    double mountainMoistureThreshold = 0.45;
-    double swampMoistureThreshold = 0.72;
-    double forestMoistureThreshold = 0.52;
+struct VegetationConfig {
+    double treeDensityForest = 0.022;
+    double treeDensityTaiga = 0.028;
+    double treeDensityPlains = 0.003;
+    double treeDensitySavanna = 0.005;
+    double treeDensitySwamp = 0.012;
+    double cactusDensityDesert = 0.006;
+    int oakTrunkMin = 4;
+    int oakTrunkMax = 6;
+    int canopyRadius = 2;
+    double tallGrassDensity = 0.18;
+    double flowerDensity = 0.012;
+};
 
+struct TerrainGenConfig {
+    // Biome noise scales
+    double tempScale = 1.0 / 800.0;
+    double moistureScale = 1.0 / 700.0;
+
+    // Continentalness — separates ocean from land
+    double continentalnessScale = 1.0 / 1800.0;
+    double oceanThreshold = 0.40;
+    double beachThreshold = 0.45;
+
+    // Biome classification thresholds (kept for UI compatibility)
+    double desertTemperatureThreshold = 0.58;
+    double desertMoistureThreshold = 0.38;
+    double mountainTemperatureThreshold = 0.42;
+    double mountainMoistureThreshold = 0.45;
+    double swampMoistureThreshold = 0.62;
+    double forestMoistureThreshold = 0.45;
+
+    // Noise contrast for biome classification (power < 1 spreads values)
+    double biomeNoiseContrast = 0.55;
+
+    // Per-biome terrain profiles
+    BiomeProfileConfig ocean{};
+    BiomeProfileConfig beach{};
     BiomeProfileConfig desert{};
+    BiomeProfileConfig savanna{};
     BiomeProfileConfig plains{};
     BiomeProfileConfig forest{};
-    BiomeProfileConfig mountains{};
-    BiomeProfileConfig tundra{};
     BiomeProfileConfig swamp{};
+    BiomeProfileConfig taiga{};
+    BiomeProfileConfig tundra{};
+    BiomeProfileConfig mountains{};
 
-    double terrainWarpScale = 1.0 / 150.0;
+    // Terrain shape
+    double terrainWarpScale = 1.0 / 170.0;
     double terrainWarpStrength = 45.0;
-
-    double macroScale = 1.0 / 768.0;
-    double mountainScale = 1.0 / 280.0;
-    double detailScale = 1.0 / 84.0;
-    double macroWeight = 0.50;
-    double ridgeWeight = 1.25;
+    double macroScale = 1.0 / 700.0;
+    double mountainScale = 1.0 / 220.0;
+    double detailScale = 1.0 / 92.0;
+    double macroWeight = 0.52;
+    double ridgeWeight = 1.75;
     double detailWeight = 0.28;
-    double nonMountainRidgeBias = 0.22;
+    double nonMountainRidgeBias = 0.20;
     double swampHeightCap = 66.0;
 
-    int blendRadius = 16;
-    std::array<double, 5> blendWeights = {{0.62, 0.095, 0.095, 0.095, 0.095}};
+    int blendRadius = 12;
+    std::array<double, 5> blendWeights = {{0.70, 0.075, 0.075, 0.075, 0.075}};
 
+    // Caves
     double caveScale = 1.0 / 42.0;
     double caveWarpScale = 1.0 / 96.0;
     double caveWarpStrength = 24.0;
@@ -85,23 +120,30 @@ struct TerrainGenConfig {
     double caveThresholdBase = 0.055;
     double caveThresholdDepthGain = 0.025;
 
+    // Aquifers
     double aquiferScale = 1.0 / 68.0;
     double aquiferYScaleMul = 1.2;
     double aquiferThreshold = 0.3;
     int aquiferDepthYOffset = 8;
 
+    // Layering and surface
     int bedrockY = -100;
     int deepStoneCutoffY = 18;
     int waterLevelY = 64;
     double topSurfaceDensityThreshold = 3.0;
-    int snowStartY = 126;
-    int mountainStoneStartY = 108;
+    int snowStartY = 158;
+    int mountainStoneStartY = 130;
 
-    double overhangBandHalfWidth = 30.0;
+    // Overhangs
+    double overhangBandHalfWidth = 18.0;
     double overhangScale = 1.0 / 55.0;
-    double overhangStrength = 15.0;
+    double overhangStrength = 10.0;
 
+    // Ores
     std::array<OreConfig, 5> ores{};
+
+    // Vegetation (trees, cacti, tall grass, flowers)
+    VegetationConfig vegetation{};
 };
 
 TerrainGenConfig getConfig();

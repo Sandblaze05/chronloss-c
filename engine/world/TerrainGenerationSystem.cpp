@@ -196,6 +196,14 @@ double toUnit(double n) {
     return std::clamp((n * 0.5) + 0.5, 0.0, 1.0);
 }
 
+// Contrast-enhance a [0,1] value: power < 1 pushes values away from 0.5 (more biome variety).
+double sharpen(double x, double power) {
+    double centered = x - 0.5;
+    double sign = (centered >= 0.0) ? 1.0 : -1.0;
+    double magnitude = std::abs(centered) * 2.0;
+    return 0.5 + sign * std::pow(magnitude, power) * 0.5;
+}
+
 struct BiomeSample {
     BiomeType type = BiomeType::Plains;
     double temperature = 0.5;
@@ -225,16 +233,33 @@ TerrainProfile toTerrainProfile(const TerrainGenerationSystem::BiomeProfileConfi
 TerrainGenerationSystem::TerrainGenConfig makeDefaultConfig() {
     TerrainGenerationSystem::TerrainGenConfig cfg{};
 
-    cfg.mountainTemperatureThreshold = 0.36;
-    cfg.mountainMoistureThreshold = 0.40;
+    // Continentalness
+    cfg.continentalnessScale = 1.0 / 1800.0;
+    cfg.oceanThreshold = 0.40;
+    cfg.beachThreshold = 0.45;
 
-    cfg.desert = {6, 7, 1, 8, 56, 20};
-    cfg.plains = {5, 2, 1, 4, 58, 26};
-    cfg.forest = {5, 2, 1, 5, 60, 28};
-    cfg.mountains = {10, 8, 1, 6, 72, 130};
-    cfg.tundra = {10, 8, 1, 4, 58, 32};
-    cfg.swamp = {9, 2, 1, 5, 52, 8};
+    // Widened biome thresholds for actual variety
+    cfg.desertTemperatureThreshold = 0.58;
+    cfg.desertMoistureThreshold = 0.38;
+    cfg.mountainTemperatureThreshold = 0.42;
+    cfg.mountainMoistureThreshold = 0.45;
+    cfg.swampMoistureThreshold = 0.62;
+    cfg.forestMoistureThreshold = 0.45;
+    cfg.biomeNoiseContrast = 0.55;
 
+    // Per-biome profiles: {topBlock, fillerBlock, deepBlock, fillerDepth, baseHeight, heightAmplitude}
+    cfg.ocean     = {6,  6, 1, 4, 38, 16};   // Sand floor, deep below water
+    cfg.beach     = {6,  6, 1, 6, 62,  4};   // Flat sand at water level
+    cfg.desert    = {6,  7, 1, 8, 68, 18};   // Sand/sandstone dunes
+    cfg.savanna   = {5,  2, 1, 5, 70, 14};   // Grass, moderate height
+    cfg.plains    = {5,  2, 1, 5, 66, 10};   // Gentle rolling hills
+    cfg.forest    = {5,  2, 1, 6, 68, 18};   // Moderate hills
+    cfg.swamp     = {9,  2, 1, 5, 62,  5};   // Very flat, near water level
+    cfg.taiga     = {5,  2, 1, 5, 68, 22};   // Rugged terrain
+    cfg.tundra    = {10, 8, 1, 4, 66, 18};   // Snow-covered moderate terrain
+    cfg.mountains = {10, 8, 1, 6, 72, 120};  // Dramatic peaks
+
+    // Terrain shape
     cfg.terrainWarpScale = 1.0 / 170.0;
     cfg.terrainWarpStrength = 64.0;
     cfg.macroScale = 1.0 / 700.0;
@@ -247,19 +272,29 @@ TerrainGenerationSystem::TerrainGenConfig makeDefaultConfig() {
     cfg.blendRadius = 12;
     cfg.blendWeights = {{0.70, 0.075, 0.075, 0.075, 0.075}};
 
+    // Surface and layering
     cfg.snowStartY = 158;
     cfg.mountainStoneStartY = 130;
-    cfg.overhangBandHalfWidth = 36.0;
-    cfg.overhangScale = 1.0 / 48.0;
-    cfg.overhangStrength = 23.0;
+    cfg.overhangBandHalfWidth = 18.0;
+    cfg.overhangScale = 1.0 / 55.0;
+    cfg.overhangStrength = 10.0;
 
+    // Ores
     cfg.ores = {{
-        {8, 1.0 / 6.0, 0.64, 80, -100, true},
-        {11, 1.0 / 14.0, 0.62, 32, -100, true},
-        {12, 1.0 / 10.0, 0.66, 16, -100, true},
-        {13, 1.0 / 8.0, 0.70, 0, -100, true},
-        {14, 1.0 / 7.0, 0.74, -20, -100, true},
+        {8,  1.0 / 6.0,  0.64, 80,  -100, true},
+        {11, 1.0 / 14.0, 0.62, 32,  -100, true},
+        {12, 1.0 / 10.0, 0.66, 16,  -100, true},
+        {13, 1.0 / 8.0,  0.70, 0,   -100, true},
+        {14, 1.0 / 7.0,  0.74, -20, -100, true},
     }};
+
+    // Vegetation
+    cfg.vegetation.treeDensityForest  = 0.022;
+    cfg.vegetation.treeDensityTaiga   = 0.028;
+    cfg.vegetation.treeDensityPlains  = 0.003;
+    cfg.vegetation.treeDensitySavanna = 0.005;
+    cfg.vegetation.treeDensitySwamp   = 0.012;
+    cfg.vegetation.cactusDensityDesert = 0.006;
 
     return cfg;
 }
@@ -267,51 +302,85 @@ TerrainGenerationSystem::TerrainGenConfig makeDefaultConfig() {
 std::mutex gConfigMutex;
 TerrainGenerationSystem::TerrainGenConfig gConfig = makeDefaultConfig();
 
+// ─── Biome Selection ────────────────────────────────────────────────
+
 BiomeSample sampleBiome(std::uint64_t seed,
                         int worldX,
                         int worldZ,
                         const TerrainGenerationSystem::TerrainGenConfig& cfg) {
-    const double tx = static_cast<double>(worldX) * cfg.tempScale;
-    const double tz = static_cast<double>(worldZ) * cfg.tempScale;
-    const double mx = static_cast<double>(worldX) * cfg.moistureScale;
-    const double mz = static_cast<double>(worldZ) * cfg.moistureScale;
-
-    double temperature = toUnit(fbm2D(seed + 0xA2F13C5ULL, tx, tz, 4, 2.0, 0.5));
-    double moisture = toUnit(fbm2D(seed + 0x79E4D2BULL, mx, mz, 4, 2.0, 0.5));
-
     const double wx = static_cast<double>(worldX);
     const double wz = static_cast<double>(worldZ);
+
+    // Continentalness noise — large-scale land/ocean separation
+    const double contRaw = toUnit(fbm2D(seed + 0xC047100DULL,
+                                        wx * cfg.continentalnessScale,
+                                        wz * cfg.continentalnessScale,
+                                        3, 2.0, 0.5));
+
+    if (contRaw < cfg.oceanThreshold) {
+        return BiomeSample{BiomeType::Ocean, 0.5, 0.5};
+    }
+    if (contRaw < cfg.beachThreshold) {
+        return BiomeSample{BiomeType::Beach, 0.5, 0.5};
+    }
+
+    // Temperature and moisture
+    const double tx = wx * cfg.tempScale;
+    const double tz = wz * cfg.tempScale;
+    const double mx = wx * cfg.moistureScale;
+    const double mz = wz * cfg.moistureScale;
+
+    double temperature = toUnit(fbm2D(seed + 0xA2F13C5ULL, tx, tz, 4, 2.0, 0.5));
+    double moisture    = toUnit(fbm2D(seed + 0x79E4D2BULL, mx, mz, 4, 2.0, 0.5));
+
+    // Apply contrast enhancement to spread values away from 0.5
+    temperature = sharpen(temperature, cfg.biomeNoiseContrast);
+    moisture    = sharpen(moisture,    cfg.biomeNoiseContrast);
+
+    // Mountain signal (shape-driven, separate from temp/moisture)
     const double mountainMaskScale = cfg.macroScale * 1.35;
     const double mountainMaskRaw = toUnit(fbm2D(seed + 0x7C159E37ULL,
                                                 wx * mountainMaskScale,
                                                 wz * mountainMaskScale,
-                                                3,
-                                                2.0,
-                                                0.5));
+                                                3, 2.0, 0.5));
     const double mountainMask = std::pow(std::clamp((mountainMaskRaw - 0.34) / 0.66, 0.0, 1.0), 1.4);
     const double ridged = std::clamp(ridgedFbm2D(seed + 0xF00D1234ULL,
                                                  wx * cfg.mountainScale,
                                                  wz * cfg.mountainScale,
-                                                 5,
-                                                 2.1,
-                                                 2.0),
-                                     0.0,
-                                     1.0);
+                                                 5, 2.1, 2.0),
+                                     0.0, 1.0);
     const double mountainSignal = (mountainMask * 0.6) + (std::pow(ridged, 1.7) * 0.4);
 
+    // Biome selection
     BiomeType biome = BiomeType::Plains;
-    if (temperature > cfg.desertTemperatureThreshold && moisture < cfg.desertMoistureThreshold) {
-        biome = BiomeType::Desert;
+
+    if (mountainSignal > 0.52) {
+        biome = BiomeType::Mountains;
+    } else if (temperature > cfg.desertTemperatureThreshold) {
+        // Hot biomes
+        if (moisture < cfg.desertMoistureThreshold) {
+            biome = BiomeType::Desert;
+        } else if (moisture > cfg.swampMoistureThreshold) {
+            biome = BiomeType::Swamp;
+        } else {
+            biome = BiomeType::Savanna;
+        }
     } else if (temperature < cfg.mountainTemperatureThreshold) {
-        if (mountainSignal > 0.52) {
-            biome = (moisture < cfg.mountainMoistureThreshold) ? BiomeType::Tundra : BiomeType::Mountains;
+        // Cold biomes
+        if (moisture < cfg.desertMoistureThreshold) {
+            biome = BiomeType::Tundra;
+        } else {
+            biome = BiomeType::Taiga;
+        }
+    } else {
+        // Temperate biomes
+        if (moisture > cfg.swampMoistureThreshold) {
+            biome = BiomeType::Swamp;
         } else if (moisture > cfg.forestMoistureThreshold) {
             biome = BiomeType::Forest;
+        } else {
+            biome = BiomeType::Plains;
         }
-    } else if (moisture > cfg.swampMoistureThreshold) {
-        biome = BiomeType::Swamp;
-    } else if (moisture > cfg.forestMoistureThreshold) {
-        biome = BiomeType::Forest;
     }
 
     return BiomeSample{biome, temperature, moisture};
@@ -319,19 +388,17 @@ BiomeSample sampleBiome(std::uint64_t seed,
 
 TerrainProfile profileForBiome(BiomeType biome, const TerrainGenerationSystem::TerrainGenConfig& cfg) {
     switch (biome) {
-        case BiomeType::Desert:
-            return toTerrainProfile(cfg.desert);
-        case BiomeType::Forest:
-            return toTerrainProfile(cfg.forest);
-        case BiomeType::Mountains:
-            return toTerrainProfile(cfg.mountains);
-        case BiomeType::Tundra:
-            return toTerrainProfile(cfg.tundra);
-        case BiomeType::Swamp:
-            return toTerrainProfile(cfg.swamp);
+        case BiomeType::Ocean:     return toTerrainProfile(cfg.ocean);
+        case BiomeType::Beach:     return toTerrainProfile(cfg.beach);
+        case BiomeType::Desert:    return toTerrainProfile(cfg.desert);
+        case BiomeType::Savanna:   return toTerrainProfile(cfg.savanna);
+        case BiomeType::Forest:    return toTerrainProfile(cfg.forest);
+        case BiomeType::Mountains: return toTerrainProfile(cfg.mountains);
+        case BiomeType::Tundra:    return toTerrainProfile(cfg.tundra);
+        case BiomeType::Swamp:     return toTerrainProfile(cfg.swamp);
+        case BiomeType::Taiga:     return toTerrainProfile(cfg.taiga);
         case BiomeType::Plains:
-        default:
-            return toTerrainProfile(cfg.plains);
+        default:                   return toTerrainProfile(cfg.plains);
     }
 }
 
@@ -351,10 +418,10 @@ std::uint8_t sampleSurfaceBlock(const TerrainProfile& profile,
                                 int terrainHeight,
                                 const TerrainGenerationSystem::TerrainGenConfig& cfg) {
     if (terrainHeight >= cfg.snowStartY) {
-        return 10;
+        return 10; // Snow
     }
     if (biome.type == BiomeType::Mountains && terrainHeight >= cfg.mountainStoneStartY) {
-        return 1;
+        return 1; // Stone
     }
     return profile.topBlock;
 }
@@ -373,67 +440,59 @@ int sampleTerrainHeight(std::uint64_t seed,
     const double macro = fbm2D(seed + 0xDEADBEEFULL,
                                wx * cfg.macroScale,
                                wz * cfg.macroScale,
-                               4,
-                               2.0,
-                               0.5);
+                               4, 2.0, 0.5);
     const double ridged = std::clamp(ridgedFbm2D(seed + 0xF00D1234ULL,
                                                  wx * cfg.mountainScale,
                                                  wz * cfg.mountainScale,
-                                                 5,
-                                                 2.1,
-                                                 2.0),
-                                     0.0,
-                                     1.0);
+                                                 5, 2.1, 2.0),
+                                     0.0, 1.0);
     const double detail = fbm2D(seed + 0xC0FFEE11ULL,
                                 wx * cfg.detailScale,
                                 wz * cfg.detailScale,
-                                5,
-                                2.0,
-                                0.54);
+                                5, 2.0, 0.54);
 
     const double mountainMaskScale = cfg.macroScale * 1.35;
     const double mountainMaskRaw = toUnit(fbm2D(seed + 0x7C159E37ULL,
                                                 wx * mountainMaskScale,
                                                 wz * mountainMaskScale,
-                                                3,
-                                                2.0,
-                                                0.5));
+                                                3, 2.0, 0.5));
     const double mountainMask = std::pow(std::clamp((mountainMaskRaw - 0.34) / 0.66, 0.0, 1.0), 1.4);
 
-    // Shape ridges into sparse peak clusters so mountains form separated summits,
-    // not one continuous elevated wall.
+    // Shape ridges into sparse peak clusters
     const double ridgeSharp = std::pow(ridged, (biome.type == BiomeType::Mountains) ? 2.8 : 2.2);
     const double peakMaskRaw = toUnit(fbm2D(seed + 0x7F4A7C15ULL,
                                             wx * (cfg.macroScale * 1.35),
                                             wz * (cfg.macroScale * 1.35),
-                                            3,
-                                            2.0,
-                                            0.5));
+                                            3, 2.0, 0.5));
     const double peakMask = std::pow(std::clamp((peakMaskRaw - 0.40) / 0.60, 0.0, 1.0), 1.8);
 
     const double cliffNoise = std::clamp(ridgedFbm2D(seed + 0xC11F0FF0ULL,
                                                      wx * (cfg.mountainScale * 2.7),
                                                      wz * (cfg.mountainScale * 2.7),
-                                                     4,
-                                                     2.2,
-                                                     2.0),
-                                         0.0,
-                                         1.0);
+                                                     4, 2.2, 2.0),
+                                         0.0, 1.0);
     const double cliffMask = std::clamp(mountainMask * 0.7 + std::max(0.0, ridgeSharp - 0.52) * 1.05, 0.0, 1.0);
     const double cliffContribution = std::pow(cliffNoise, 2.0) * cliffMask * 0.18;
 
     const double crackNoise = fbm2D(seed + 0x1234ABCDULL,
                                     wx * (cfg.mountainScale * 3.4),
                                     wz * (cfg.mountainScale * 3.4),
-                                    3,
-                                    2.0,
-                                    0.5);
+                                    3, 2.0, 0.5);
     const double crackSignal = std::clamp((std::abs(crackNoise) - 0.58) / 0.42, 0.0, 1.0);
     const double crackContribution = crackSignal * cliffMask * 0.12;
 
     const double ridgeContribution = ridgeSharp * peakMask * mountainMask;
 
-    const double biomeMountainBias = (biome.type == BiomeType::Mountains) ? 1.0 : cfg.nonMountainRidgeBias;
+    // Suppress mountain ridges for ocean/beach so they stay flat/underwater
+    double biomeMountainBias;
+    if (biome.type == BiomeType::Mountains) {
+        biomeMountainBias = 1.0;
+    } else if (biome.type == BiomeType::Ocean || biome.type == BiomeType::Beach) {
+        biomeMountainBias = 0.0;
+    } else {
+        biomeMountainBias = cfg.nonMountainRidgeBias;
+    }
+
     const double combined = (macro * cfg.macroWeight) +
                             (((ridgeContribution - 0.20) * cfg.ridgeWeight) * biomeMountainBias) +
                             (detail * cfg.detailWeight) +
@@ -494,9 +553,7 @@ bool shouldCarveCave(std::uint64_t seed,
                               x * cfg.caveWarpScale,
                               y * cfg.caveWarpScale,
                               z * cfg.caveWarpScale,
-                              3,
-                              2.0,
-                              0.55);
+                              3, 2.0, 0.55);
 
     const double wx2 = x + warp * cfg.caveWarpStrength;
     const double wz2 = z - warp * cfg.caveWarpStrength;
@@ -506,20 +563,15 @@ bool shouldCarveCave(std::uint64_t seed,
                             wx2 * cfg.caveScale,
                             squashedY * cfg.caveScale,
                             wz2 * cfg.caveScale,
-                            4,
-                            2.0,
-                            0.5);
+                            4, 2.0, 0.5);
     const double n2 = fbm3D(seed + 0xA54FF53AULL,
                             wx2 * cfg.caveScale + 1.7,
                             squashedY * cfg.caveScale + 3.1,
                             wz2 * cfg.caveScale - 2.4,
-                            4,
-                            2.0,
-                            0.5);
+                            4, 2.0, 0.5);
 
     const double depthFactor = std::clamp((static_cast<double>(terrainHeight - worldY) - cfg.caveDepthOffset) / cfg.caveDepthRange,
-                                          0.0,
-                                          1.0);
+                                          0.0, 1.0);
     const double threshold = cfg.caveThresholdBase + (cfg.caveThresholdDepthGain * depthFactor);
 
     return (std::abs(n1) < threshold && std::abs(n2) < threshold);
@@ -538,10 +590,23 @@ bool isAquiferCell(std::uint64_t seed,
                                  x * cfg.aquiferScale,
                                  y * (cfg.aquiferScale * cfg.aquiferYScaleMul),
                                  z * cfg.aquiferScale,
-                                 3,
-                                 2.0,
-                                 0.5);
+                                 3, 2.0, 0.5);
     return density > cfg.aquiferThreshold;
+}
+
+// ─── Vegetation helpers ─────────────────────────────────────────────
+
+double getTreeDensityForBiome(BiomeType biome,
+                              const TerrainGenerationSystem::VegetationConfig& veg) {
+    switch (biome) {
+        case BiomeType::Forest:  return veg.treeDensityForest;
+        case BiomeType::Taiga:   return veg.treeDensityTaiga;
+        case BiomeType::Plains:  return veg.treeDensityPlains;
+        case BiomeType::Savanna: return veg.treeDensitySavanna;
+        case BiomeType::Swamp:   return veg.treeDensitySwamp;
+        case BiomeType::Desert:  return veg.cactusDensityDesert;
+        default:                 return 0.0;
+    }
 }
 
 } // namespace
@@ -570,6 +635,8 @@ void generateChunkTerrain(std::uint64_t seed,
                           int chunkZ) {
     const TerrainGenConfig cfg = getConfig();
 
+    // ═══ Phase 1: Pre-compute column info ═══
+
     struct ColumnInfo {
         int terrainHeight = 0;
         BiomeSample biome{};
@@ -588,6 +655,8 @@ void generateChunkTerrain(std::uint64_t seed,
         }
     }
 
+    // ═══ Phase 2: Terrain block fill ═══
+
     for (int y = 0; y < Chunk::kSizeY; ++y) {
         for (int z = 0; z < Chunk::kSizeZ; ++z) {
             for (int x = 0; x < Chunk::kSizeX; ++x) {
@@ -602,132 +671,281 @@ void generateChunkTerrain(std::uint64_t seed,
 
                 std::uint8_t blockId = 0; // Air
 
-                if (worldY == cfg.bedrockY) {
-                    blockId = 4; // Bedrock single layer
-                } else {
-                    double heightDifference = static_cast<double>(terrainHeight - worldY);
-                    double density = heightDifference;
-
-                    auto sampleDensityAt = [&](int sampleY) {
-                        double sampleHeightDiff = static_cast<double>(terrainHeight - sampleY);
-                        double sampleDensity = sampleHeightDiff;
-                        if (std::abs(sampleHeightDiff) < cfg.overhangBandHalfWidth) {
-                            double overhangNoise = fbm3D(seed + 0x98765432ULL,
-                                                         worldX * cfg.overhangScale,
-                                                         sampleY * cfg.overhangScale,
-                                                         worldZ * cfg.overhangScale,
-                                                         3,
-                                                         2.0,
-                                                         0.5);
-                            sampleDensity += overhangNoise * cfg.overhangStrength;
-                        }
-                        return sampleDensity;
-                    };
-
-                    if (std::abs(heightDifference) < cfg.overhangBandHalfWidth) {
+                auto isTerrainSolidAt = [&](int sy) {
+                    if (sy <= cfg.waterLevelY) return true; // everything under water logic acts like base
+                    if (sy == cfg.bedrockY) return true;
+                    double d = static_cast<double>(terrainHeight - sy);
+                    if (std::abs(d) < cfg.overhangBandHalfWidth) {
                         double overhangNoise = fbm3D(seed + 0x98765432ULL,
                                                      worldX * cfg.overhangScale,
-                                                     worldY * cfg.overhangScale,
+                                                     sy * cfg.overhangScale,
                                                      worldZ * cfg.overhangScale,
-                                                     3,
-                                                     2.0,
-                                                     0.5);
-
-                        density += overhangNoise * cfg.overhangStrength;
+                                                     3, 2.0, 0.5);
+                        d += overhangNoise * cfg.overhangStrength;
                     }
+                    if (d >= 0.0) {
+                        return !shouldCarveCave(seed, worldX, sy, worldZ, terrainHeight, cfg);
+                    }
+                    return false;
+                };
 
-                    if (density >= 0.0) {
-                        if (worldY <= cfg.deepStoneCutoffY) {
-                            blockId = profile.deepBlock;
-                        } else if (worldY >= terrainHeight && density < cfg.topSurfaceDensityThreshold) {
-                            blockId = sampleSurfaceBlock(profile, biome, terrainHeight, cfg);
-                        } else if (worldY >= terrainHeight - profile.fillerDepth) {
-                            blockId = profile.fillerBlock;
+                if (worldY == cfg.bedrockY) {
+                    blockId = 4;
+                } else if (isTerrainSolidAt(worldY)) {
+                    int depth = 0;
+                    for (int lookY = worldY + 1; lookY <= worldY + profile.fillerDepth; ++lookY) {
+                        if (isTerrainSolidAt(lookY)) {
+                            depth++;
                         } else {
-                            blockId = profile.deepBlock;
+                            break;
                         }
-
-                        if (blockId == profile.deepBlock && blockId != 0) {
-                            for (const auto& ore : cfg.ores) {
-                                if (!ore.enabled) {
-                                    continue;
-                                }
-                                if (worldY > ore.maxY || worldY < ore.minY) {
-                                    continue;
-                                }
-                                double vein = fbm3D(seed ^ static_cast<std::uint64_t>(ore.id) * 0xDEAD1337ULL,
-                                                    worldX * ore.scale,
-                                                    worldY * ore.scale,
-                                                    worldZ * ore.scale,
-                                                    2,
-                                                    2.0,
-                                                    0.5);
-                                if (toUnit(vein) > ore.threshold) {
-                                    blockId = ore.id;
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Beach transition: sand near water level on exposed surface.
-                        if (blockId == profile.topBlock && blockId != 0) {
-                            const int distToWater = cfg.waterLevelY - worldY;
-                            if (distToWater >= 0 && distToWater <= 3) {
-                                blockId = 6;
-                            }
-                        }
-
-                        // Seafloor: shallow sand, mid-depth gravel, deep clay.
-                        if (blockId == profile.topBlock || blockId == profile.fillerBlock) {
-                            if (terrainHeight < cfg.waterLevelY && worldY == terrainHeight) {
-                                const int waterDepth = cfg.waterLevelY - worldY;
-                                if (waterDepth <= 3) {
-                                    blockId = 6;
-                                } else if (waterDepth <= 8) {
-                                    blockId = 8;
-                                } else {
-                                    blockId = 9;
-                                }
-                            }
-                        }
-
-                        if (blockId != 4 && shouldCarveCave(seed, worldX, worldY, worldZ, terrainHeight, cfg)) {
-                            blockId = 0;
-                            if (worldY <= cfg.waterLevelY - cfg.aquiferDepthYOffset &&
-                                isAquiferCell(seed, worldX, worldY, worldZ, cfg)) {
-                                blockId = 3;
-                            }
-                        }
-
-                        // Surface material must stay exposed: if a top block would be buried or submerged,
-                        // demote it to filler so layering becomes grass -> dirt -> stone.
-                        if (blockId == profile.topBlock && blockId != 0) {
-                            const int aboveY = worldY + 1;
-                            bool aboveIsSolid = false;
-                            if (aboveY != cfg.bedrockY) {
-                                const double aboveDensity = sampleDensityAt(aboveY);
-                                if (aboveDensity >= 0.0 &&
-                                    !shouldCarveCave(seed, worldX, aboveY, worldZ, terrainHeight, cfg)) {
-                                    aboveIsSolid = true;
-                                }
-                            }
-
-                            const bool aboveIsWater = (aboveY <= cfg.waterLevelY) && !aboveIsSolid;
-                            if (aboveIsSolid || aboveIsWater) {
-                                blockId = profile.fillerBlock;
-                            }
-                        }
-                    } else if (worldY <= cfg.waterLevelY) {
-                        blockId = 3; // water fill
                     }
+
+                    if (worldY <= cfg.deepStoneCutoffY) {
+                        blockId = profile.deepBlock;
+                    } else if (depth == 0) {
+                        bool isUnderWater = (worldY < cfg.waterLevelY) && !isTerrainSolidAt(worldY + 1);
+                        if (isUnderWater) {
+                            const int waterDepth = cfg.waterLevelY - worldY;
+                            if (waterDepth <= 3) {
+                                blockId = 6;
+                            } else if (waterDepth <= 8) {
+                                blockId = 8;
+                            } else {
+                                blockId = 9;
+                            }
+                        } else {
+                            blockId = sampleSurfaceBlock(profile, biome, worldY, cfg);
+                            if (blockId == profile.topBlock && blockId != 0) {
+                                const int distToWater = cfg.waterLevelY - worldY;
+                                if (distToWater >= 0 && distToWater <= 3) {
+                                    blockId = 6;
+                                }
+                            }
+                        }
+                    } else if (depth < profile.fillerDepth) {
+                        blockId = profile.fillerBlock;
+                    } else {
+                        blockId = profile.deepBlock;
+                    }
+
+                    if (blockId == profile.deepBlock && blockId != 0) {
+                        for (const auto& ore : cfg.ores) {
+                            if (!ore.enabled) continue;
+                            if (worldY > ore.maxY || worldY < ore.minY) continue;
+                            double vein = fbm3D(seed ^ static_cast<std::uint64_t>(ore.id) * 0xDEAD1337ULL,
+                                                worldX * ore.scale,
+                                                worldY * ore.scale,
+                                                worldZ * ore.scale,
+                                                2, 2.0, 0.5);
+                            if (toUnit(vein) > ore.threshold) {
+                                blockId = ore.id;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (blockId != 4 && shouldCarveCave(seed, worldX, worldY, worldZ, terrainHeight, cfg)) {
+                        blockId = 0;
+                        if (worldY <= cfg.waterLevelY - cfg.aquiferDepthYOffset &&
+                            isAquiferCell(seed, worldX, worldY, worldZ, cfg)) {
+                            blockId = 3;
+                        }
+                    }
+                } else if (worldY <= cfg.waterLevelY) {
+                    blockId = 3;
                 }
 
-                // Final safety override to enforce exact bedrock layer contract.
                 if (worldY == cfg.bedrockY) {
                     blockId = 4;
                 }
 
                 chunk.setBlock(x, y, z, blockId);
+            }
+        }
+    }
+
+    // ═══ Phase 3: Vegetation (trees, cacti, tall grass) ═══
+
+    constexpr int kCanopyExtent = 3; // max distance a canopy can extend from trunk
+
+    for (int tz = -kCanopyExtent; tz < Chunk::kSizeZ + kCanopyExtent; ++tz) {
+        for (int tx = -kCanopyExtent; tx < Chunk::kSizeX + kCanopyExtent; ++tx) {
+            const int wx = chunkX * Chunk::kSizeX + tx;
+            const int wz = chunkZ * Chunk::kSizeZ + tz;
+
+            // ── Deterministic tree placement hash ──
+            std::uint64_t treeKey = static_cast<std::uint64_t>(static_cast<std::uint32_t>(wx)) * 198491317ULL
+                                  ^ static_cast<std::uint64_t>(static_cast<std::uint32_t>(wz)) * 6542989ULL
+                                  ^ seed ^ 0x78EE5EEDULL;
+            std::uint64_t tk = treeKey;
+            double treeProbability = static_cast<double>(splitmix64(tk) >> 11) * (1.0 / 9007199254740992.0);
+
+            // Get biome for tree density — reuse precomputed data for inner columns
+            BiomeSample treeBiome;
+            if (tx >= 0 && tx < Chunk::kSizeX && tz >= 0 && tz < Chunk::kSizeZ) {
+                treeBiome = columns[tx][tz].biome;
+            } else {
+                treeBiome = sampleBiome(seed, wx, wz, cfg);
+            }
+
+            const double density = getTreeDensityForBiome(treeBiome.type, cfg.vegetation);
+            if (density <= 0.0 || treeProbability >= density) continue;
+
+            int precompH = (tx >= 0 && tx < Chunk::kSizeX && tz >= 0 && tz < Chunk::kSizeZ) ? columns[tx][tz].terrainHeight : sampleBlendedTerrainHeight(seed, wx, wz, cfg);
+
+            auto isTerrainSolidAtGlobal = [&](int gx, int gy, int gz) {
+                if (gy == cfg.bedrockY) return true;
+                if (gy <= cfg.waterLevelY) return true;
+                double d = static_cast<double>(precompH - gy);
+                if (std::abs(d) < cfg.overhangBandHalfWidth) {
+                    double overhangNoise = fbm3D(seed + 0x98765432ULL, gx * cfg.overhangScale, gy * cfg.overhangScale, gz * cfg.overhangScale, 3, 2.0, 0.5);
+                    d += overhangNoise * cfg.overhangStrength;
+                }
+                if (d >= 0.0) {
+                    return !shouldCarveCave(seed, gx, gy, gz, precompH, cfg);
+                }
+                return false;
+            };
+
+            int actualSurfaceY = -1;
+            for (int sy = std::min(Chunk::kSizeY - 1, precompH + 24); sy >= std::max(0, precompH - 24); --sy) {
+                if (isTerrainSolidAtGlobal(wx, sy, wz)) {
+                    actualSurfaceY = sy;
+                    break;
+                }
+            }
+
+            if (actualSurfaceY == -1 || actualSurfaceY <= cfg.waterLevelY) continue;
+            if (treeBiome.type == BiomeType::Mountains && actualSurfaceY > cfg.mountainStoneStartY - 10) continue;
+
+            int treeBaseY = actualSurfaceY;
+
+
+            // ── Tree shape from hash ──
+            std::uint64_t sk = treeKey ^ 0x12345678ULL;
+            std::uint64_t shapeHash = splitmix64(sk);
+
+            if (treeBiome.type == BiomeType::Desert) {
+                // ── Cactus ──
+                int cactusH = 1 + static_cast<int>(shapeHash % 3); // 1-3
+                if (tx >= 0 && tx < Chunk::kSizeX && tz >= 0 && tz < Chunk::kSizeZ) {
+                    for (int h = 1; h <= cactusH; ++h) {
+                        int wy = treeBaseY + h;
+                        int ly = wy - chunkY * Chunk::kSizeY;
+                        if (ly >= 0 && ly < Chunk::kSizeY) {
+                            chunk.setBlock(tx, ly, tz, 18); // Cactus
+                        }
+                    }
+                }
+            } else {
+                // ── Oak tree ──
+                int trunkH = cfg.vegetation.oakTrunkMin +
+                             static_cast<int>(shapeHash % static_cast<std::uint64_t>(
+                                 cfg.vegetation.oakTrunkMax - cfg.vegetation.oakTrunkMin + 1));
+                int canopyR = cfg.vegetation.canopyRadius;
+                int canopyBottom = trunkH - 2;  // canopy starts 2 below trunk top
+                int canopyTop = trunkH + 1;     // canopy extends 1 above trunk top
+
+                // Taiga: taller trunk, narrower/conical canopy feel
+                if (treeBiome.type == BiomeType::Taiga) {
+                    trunkH += 2;
+                    canopyBottom = trunkH - 3;
+                    canopyTop = trunkH + 1;
+                }
+
+                // Swamp: shorter, wider
+                if (treeBiome.type == BiomeType::Swamp) {
+                    trunkH = std::max(3, trunkH - 1);
+                    canopyBottom = trunkH - 2;
+                    canopyTop = trunkH + 1;
+                    canopyR = 3;
+                }
+
+                // Place trunk (only for columns inside this chunk)
+                if (tx >= 0 && tx < Chunk::kSizeX && tz >= 0 && tz < Chunk::kSizeZ) {
+                    for (int h = 1; h <= trunkH; ++h) {
+                        int wy = treeBaseY + h;
+                        int ly = wy - chunkY * Chunk::kSizeY;
+                        if (ly >= 0 && ly < Chunk::kSizeY) {
+                            chunk.setBlock(tx, ly, tz, 15); // Oak_Log
+                        }
+                    }
+                }
+
+                // Place canopy (leaves can extend into this chunk from neighboring columns)
+                for (int dy = canopyBottom; dy <= canopyTop; ++dy) {
+                    int layerR = canopyR;
+                    // Top layer is smaller for rounded look
+                    if (dy >= trunkH) layerR = std::max(0, canopyR - (dy - trunkH + 1));
+                    if (dy == canopyBottom) layerR = std::max(1, canopyR - 1);
+
+                    for (int ddx = -layerR; ddx <= layerR; ++ddx) {
+                        for (int ddz = -layerR; ddz <= layerR; ++ddz) {
+                            // Skip trunk center on lower canopy layers
+                            if (ddx == 0 && ddz == 0 && dy <= trunkH - 1) continue;
+
+                            // Rounded corners: skip diagonals at max radius
+                            if (std::abs(ddx) == layerR && std::abs(ddz) == layerR && layerR > 1) {
+                                std::uint64_t cornerKey = treeKey ^
+                                    (static_cast<std::uint64_t>(static_cast<std::uint32_t>(ddx)) * 7919ULL +
+                                     static_cast<std::uint64_t>(static_cast<std::uint32_t>(ddz)) * 7823ULL +
+                                     static_cast<std::uint64_t>(static_cast<std::uint32_t>(dy)) * 7727ULL);
+                                std::uint64_t ck = cornerKey;
+                                if (splitmix64(ck) & 1) continue;
+                            }
+
+                            int lx = tx + ddx;
+                            int lz = tz + ddz;
+                            if (lx < 0 || lx >= Chunk::kSizeX || lz < 0 || lz >= Chunk::kSizeZ) continue;
+
+                            int wy = treeBaseY + dy;
+                            int ly = wy - chunkY * Chunk::kSizeY;
+                            if (ly < 0 || ly >= Chunk::kSizeY) continue;
+
+                            // Only place leaf where there's currently air
+                            if (chunk.getBlock(lx, ly, lz) == 0) {
+                                chunk.setBlock(lx, ly, lz, 16); // Oak_Leaves
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Phase 3b: Surface decoration (tall grass on grass blocks) ──
+    for (int z = 0; z < Chunk::kSizeZ; ++z) {
+        for (int x = 0; x < Chunk::kSizeX; ++x) {
+            const ColumnInfo& col = columns[x][z];
+            // Only decorate grass-topped biomes
+            if (col.biome.type == BiomeType::Ocean || col.biome.type == BiomeType::Beach ||
+                col.biome.type == BiomeType::Desert || col.biome.type == BiomeType::Tundra) {
+                continue;
+            }
+
+            const int surfaceY = col.terrainHeight;
+            if (surfaceY <= cfg.waterLevelY) continue;
+
+            const int localSurfY = surfaceY - chunkY * Chunk::kSizeY;
+            const int aboveY = localSurfY + 1;
+            if (localSurfY < 0 || localSurfY >= Chunk::kSizeY) continue;
+            if (aboveY < 0 || aboveY >= Chunk::kSizeY) continue;
+
+            // Only decorate if surface is grass and above is air
+            if (chunk.getBlock(x, localSurfY, z) != 5) continue;
+            if (chunk.getBlock(x, aboveY, z) != 0) continue;
+
+            const int worldX = chunkX * Chunk::kSizeX + x;
+            const int worldZ = chunkZ * Chunk::kSizeZ + z;
+            std::uint64_t grassKey = static_cast<std::uint64_t>(static_cast<std::uint32_t>(worldX)) * 48271ULL
+                                   ^ static_cast<std::uint64_t>(static_cast<std::uint32_t>(worldZ)) * 40692ULL
+                                   ^ seed ^ 0x68A55DECULL;
+            std::uint64_t gk = grassKey;
+            double grassProb = static_cast<double>(splitmix64(gk) >> 11) * (1.0 / 9007199254740992.0);
+
+            if (grassProb < cfg.vegetation.tallGrassDensity) {
+                chunk.setBlock(x, aboveY, z, 17); // Tall_Grass
             }
         }
     }
@@ -750,19 +968,17 @@ TerrainDebugSample sampleDebugAt(std::uint64_t seed, int worldX, int worldZ) {
 
 const char* biomeTypeToString(BiomeType biome) {
     switch (biome) {
-        case BiomeType::Desert:
-            return "Desert";
-        case BiomeType::Forest:
-            return "Forest";
-        case BiomeType::Mountains:
-            return "Mountains";
-        case BiomeType::Tundra:
-            return "Tundra";
-        case BiomeType::Swamp:
-            return "Swamp";
+        case BiomeType::Ocean:     return "Ocean";
+        case BiomeType::Beach:     return "Beach";
+        case BiomeType::Desert:    return "Desert";
+        case BiomeType::Savanna:   return "Savanna";
+        case BiomeType::Forest:    return "Forest";
+        case BiomeType::Mountains: return "Mountains";
+        case BiomeType::Tundra:    return "Tundra";
+        case BiomeType::Swamp:     return "Swamp";
+        case BiomeType::Taiga:     return "Taiga";
         case BiomeType::Plains:
-        default:
-            return "Plains";
+        default:                   return "Plains";
     }
 }
 

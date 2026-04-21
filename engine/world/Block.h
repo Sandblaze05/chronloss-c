@@ -59,6 +59,13 @@ public:
         registerBlock(9, "Clay").makeSolid().makeWalkable().setToughness(3);
         registerBlock(10, "Snow").makeSolid().makeWalkable().setToughness(1);
         registerBlock(11, "Packed_Ice").makeSolid().makeWalkable().setToughness(5);
+        registerBlock(12, "Iron_Ore").makeSolid().makeWalkable().setToughness(8);
+        registerBlock(13, "Gold_Ore").makeSolid().makeWalkable().setToughness(8);
+        registerBlock(14, "Diamond_Ore").makeSolid().makeWalkable().setToughness(12);
+        registerBlock(15, "Oak_Log").makeSolid().makeWalkable().setToughness(4);
+        registerBlock(16, "Oak_Leaves").makeSolid().setToughness(1);
+        registerBlock(17, "Tall_Grass").makeTransparent().setToughness(0);
+        registerBlock(18, "Cactus").makeSolid().setToughness(2);
     }
 
     static Builder registerBlock(std::uint8_t id, const std::string& name) {
