@@ -228,36 +228,37 @@ TerrainGenerationSystem::TerrainGenConfig makeDefaultConfig() {
     cfg.mountainTemperatureThreshold = 0.36;
     cfg.mountainMoistureThreshold = 0.40;
 
-    cfg.desert = {6, 6, 7, 6, 58, 14};
-    cfg.plains = {5, 2, 1, 4, 60, 16};
-    cfg.forest = {5, 2, 1, 5, 62, 18};
-    cfg.mountains = {10, 8, 1, 5, 86, 94};
-    cfg.tundra = {10, 8, 1, 3, 60, 20};
-    cfg.swamp = {2, 9, 1, 6, 57, 10};
+    cfg.desert = {6, 7, 1, 8, 56, 20};
+    cfg.plains = {5, 2, 1, 4, 58, 26};
+    cfg.forest = {5, 2, 1, 5, 60, 28};
+    cfg.mountains = {10, 8, 1, 6, 72, 130};
+    cfg.tundra = {10, 8, 1, 4, 58, 32};
+    cfg.swamp = {9, 2, 1, 5, 52, 8};
 
     cfg.terrainWarpScale = 1.0 / 170.0;
-    cfg.terrainWarpStrength = 52.0;
+    cfg.terrainWarpStrength = 64.0;
     cfg.macroScale = 1.0 / 700.0;
     cfg.mountainScale = 1.0 / 220.0;
     cfg.detailScale = 1.0 / 92.0;
-    cfg.macroWeight = 0.48;
-    cfg.ridgeWeight = 1.45;
-    cfg.detailWeight = 0.22;
-    cfg.nonMountainRidgeBias = 0.16;
+    cfg.macroWeight = 0.52;
+    cfg.ridgeWeight = 1.75;
+    cfg.detailWeight = 0.28;
+    cfg.nonMountainRidgeBias = 0.20;
     cfg.blendRadius = 12;
     cfg.blendWeights = {{0.70, 0.075, 0.075, 0.075, 0.075}};
 
-    cfg.snowStartY = 130;
-    cfg.mountainStoneStartY = 114;
+    cfg.snowStartY = 158;
+    cfg.mountainStoneStartY = 130;
     cfg.overhangBandHalfWidth = 36.0;
     cfg.overhangScale = 1.0 / 48.0;
     cfg.overhangStrength = 23.0;
 
     cfg.ores = {{
-        {11, 1.0 / 14.0, 0.72, 32, -100, true},
-        {12, 1.0 / 10.0, 0.76, 16, -100, true},
-        {13, 1.0 / 8.0, 0.80, 0, -100, true},
-        {14, 1.0 / 7.0, 0.84, -20, -100, true},
+        {8, 1.0 / 6.0, 0.64, 80, -100, true},
+        {11, 1.0 / 14.0, 0.62, 32, -100, true},
+        {12, 1.0 / 10.0, 0.66, 16, -100, true},
+        {13, 1.0 / 8.0, 0.70, 0, -100, true},
+        {14, 1.0 / 7.0, 0.74, -20, -100, true},
     }};
 
     return cfg;
@@ -664,6 +665,28 @@ void generateChunkTerrain(std::uint64_t seed,
                                 if (toUnit(vein) > ore.threshold) {
                                     blockId = ore.id;
                                     break;
+                                }
+                            }
+                        }
+
+                        // Beach transition: sand near water level on exposed surface.
+                        if (blockId == profile.topBlock && blockId != 0) {
+                            const int distToWater = cfg.waterLevelY - worldY;
+                            if (distToWater >= 0 && distToWater <= 3) {
+                                blockId = 6;
+                            }
+                        }
+
+                        // Seafloor: shallow sand, mid-depth gravel, deep clay.
+                        if (blockId == profile.topBlock || blockId == profile.fillerBlock) {
+                            if (terrainHeight < cfg.waterLevelY && worldY == terrainHeight) {
+                                const int waterDepth = cfg.waterLevelY - worldY;
+                                if (waterDepth <= 3) {
+                                    blockId = 6;
+                                } else if (waterDepth <= 8) {
+                                    blockId = 8;
+                                } else {
+                                    blockId = 9;
                                 }
                             }
                         }

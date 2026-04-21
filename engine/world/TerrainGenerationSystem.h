@@ -101,7 +101,7 @@ struct TerrainGenConfig {
     double overhangScale = 1.0 / 55.0;
     double overhangStrength = 15.0;
 
-    std::array<OreConfig, 4> ores{};
+    std::array<OreConfig, 5> ores{};
 };
 
 TerrainGenConfig getConfig();

@@ -13,7 +13,9 @@ constexpr float kAtlasInvTilesPerRow = 1.0f / static_cast<float>(kAtlasTilesPerR
 
 std::pair<int, int> atlasTileForBlockFace(std::uint8_t blockId, FaceDirection face) {
     // atlas layout (row 0):
-    // tile 0: grass top, tile 1: grass side, tile 2: dirt, tile 3: stone, tile 4: bedrock.
+    // tile 0: grass top, tile 1: grass side, tile 2: dirt, tile 3: stone, tile 4: bedrock, tile 5: water, tile 6: sand
+    // tile 7: sandstone top, tile 8: sandstone side, tile 9: sandstone bottom, tile 10: gravel, tile 11: clay, tile 12: snow
+    // tile 13: packed ice 
     switch (blockId) {
         case 5: // Grass_Block
             if (face == FACE_TOP) {
@@ -29,6 +31,26 @@ std::pair<int, int> atlasTileForBlockFace(std::uint8_t blockId, FaceDirection fa
             return {3, 0};
         case 4: // Bedrock
             return {4, 0};
+        case 3:
+            return {5, 0};
+        case 6:
+            return {6, 0};
+        case 7:
+            if (face == FACE_TOP) {
+                return {7, 0};
+            }
+            if (face == FACE_BOTTOM) {
+                return {9, 0};
+            }
+            return {8, 0};
+        case 8:
+            return {10, 0};
+        case 9:
+            return {11, 0};
+        case 10:
+            return {12, 0};
+        case 11:
+            return {13, 0};
         default:
             // Fallback to stone until more block textures are defined.
             return {3, 0};
