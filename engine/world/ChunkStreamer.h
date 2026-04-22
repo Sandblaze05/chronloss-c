@@ -2,11 +2,13 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <condition_variable>
 #include <thread>
+#include <vector>
 #include <atomic>
 #include <cstddef>
 #include <glad/glad.h>
@@ -66,17 +68,29 @@ public:
     }
 
 private:
-    void workerLoop();
+    void workerLoop(bool remeshOnly);
     void enqueueIfMissing(const ChunkCoord& c);
+    void processDirtyMeshes(std::size_t budget);
 
     std::unordered_map<ChunkCoord, std::unique_ptr<Chunk>, ChunkCoordHash> chunks_;
     std::mutex mapMutex_;
+
+    // Chunks that need remeshing due to runtime edits (block place/break).
+    std::deque<ChunkCoord> dirtyQueue_;
+    std::unordered_set<ChunkCoord, ChunkCoordHash> dirtySet_;
+
+    // Existing-chunk remesh jobs (higher priority than terrain generation).
+    std::deque<ChunkCoord> remeshQueue_;
+    // Tracks queued/in-flight remesh jobs to debounce block edit spam.
+    std::unordered_set<ChunkCoord, ChunkCoordHash> remeshSet_;
+    // Chunks dirtied while a remesh was already queued/in-flight.
+    std::unordered_set<ChunkCoord, ChunkCoordHash> remeshRetrySet_;
 
     std::deque<ChunkCoord> queue_;
     std::mutex queueMutex_;
     std::condition_variable queueCv_;
 
-    std::thread workerThread_;
+    std::vector<std::thread> workerThreads_;
     std::atomic_bool running_{false};
 
     std::uint64_t seed_ = 0;
@@ -91,6 +105,8 @@ private:
     std::atomic<uint64_t> genCount_{0};
     std::atomic<uint64_t> totalMeshNs_{0};
     std::atomic<uint64_t> meshCount_{0};
+
+    static constexpr std::size_t kMaxDirtyMeshUpdatesPerFrame = 16;
 
 public:
     // Runtime accessors to allow debugging / changing render distance

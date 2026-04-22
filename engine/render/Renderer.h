@@ -40,6 +40,7 @@ private:
     GLuint m_QuadVBO = 0;
 
     GLuint m_GridShader = 0;
+    GLuint m_SkyShader = 0;
     GLuint m_PlayerShader = 0;
     GLuint m_BlockAtlasTexture = 0;
     // camera params

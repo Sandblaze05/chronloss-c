@@ -453,6 +453,15 @@ void Renderer::init() {
         m_GridShader = 0;
     }
 
+    std::string svert = loadFileToString("engine/assets/shaders/sky.vert");
+    std::string sfrag = loadFileToString("engine/assets/shaders/sky.frag");
+    if (!svert.empty() && !gfrag.empty()) {
+        m_SkyShader = createProgram(svert.c_str(), sfrag.c_str());
+    } else {
+        std::cerr << "Failed to load sky shader files";
+        m_SkyShader = 0;
+    }
+
     std::string vert = loadFileToString("engine/assets/shaders/basic.vert");
     std::string frag = loadFileToString("engine/assets/shaders/basic.frag");
     if (!vert.empty() && !frag.empty()) {
@@ -703,14 +712,12 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
     m_LastCameraFrame.viewportWidth = width;
     m_LastCameraFrame.viewportHeight = height;
 
-    // DRAW THE INFINITE GRID FIRST (BACKGROUND)
-    if (m_GridShader && m_QuadVAO) {
-        glUseProgram(m_GridShader);
+    // DRAW THE SKY 
+    if (m_SkyShader && m_QuadVAO) {
+        glUseProgram(m_SkyShader);
         
-        // Enable Alpha Blending for the grid lines/fade
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_LEQUAL);
 
         // compute camera basis in world space
         float fwd[3] = { center[0]-eye[0], center[1]-eye[1], center[2]-eye[2] };
@@ -729,35 +736,28 @@ void Renderer::beginFrame(float playerX, float playerY, float playerZ,
         float upn[3] = { rightv[1]*fwd[2] - rightv[2]*fwd[1], rightv[2]*fwd[0] - rightv[0]*fwd[2], rightv[0]*fwd[1] - rightv[1]*fwd[0] };
 
         // Bind Uniforms
-        GLint locCamPos = glGetUniformLocation(m_GridShader, "camPos");
-        GLint locRight  = glGetUniformLocation(m_GridShader, "camRight");
-        GLint locUp     = glGetUniformLocation(m_GridShader, "camUp");
-        GLint locFwd    = glGetUniformLocation(m_GridShader, "camForward");
-        GLint locHalfW  = glGetUniformLocation(m_GridShader, "halfWidth");
-        GLint locHalfH  = glGetUniformLocation(m_GridShader, "halfHeight");
-        GLint locZoom   = glGetUniformLocation(m_GridShader, "zoom");
-        GLint locColor  = glGetUniformLocation(m_GridShader, "gridColor");
-        GLint locThick  = glGetUniformLocation(m_GridShader, "lineThickness");
+        GLint locFwd = glGetUniformLocation(m_SkyShader, "camForward");
+        GLint locRight = glGetUniformLocation(m_SkyShader, "camRight");
+        GLint locUp = glGetUniformLocation(m_SkyShader, "camUp");
+        GLint locFov = glGetUniformLocation(m_SkyShader, "fov");
+        GLint locAspect = glGetUniformLocation(m_SkyShader, "aspect");
 
-        if (locCamPos >= 0) glUniform3f(locCamPos, eye[0], eye[1], eye[2]);
-        if (locRight >= 0)  glUniform3f(locRight, rightv[0], rightv[1], rightv[2]);
-        if (locUp >= 0)     glUniform3f(locUp, upn[0], upn[1], upn[2]);
-        if (locFwd >= 0)    glUniform3f(locFwd, fwd[0], fwd[1], fwd[2]);
-        if (locHalfW >= 0)  glUniform1f(locHalfW, zoom * aspect);
-        if (locHalfH >= 0)  glUniform1f(locHalfH, zoom);
-        if (locZoom >= 0)   glUniform1f(locZoom, zoom);
-        if (locColor >= 0)  glUniform3f(locColor, 0.2f, 0.2f, 0.2f);
-        if (locThick >= 0)  glUniform1f(locThick, 0.02f);
+        if (locFwd >= 0)   glUniform3f(locFwd, fwd[0], fwd[1], fwd[2]);
+        if (locRight >= 0) glUniform3f(locRight, rightv[0], rightv[1], rightv[2]);
+        if (locUp >= 0)    glUniform3f(locUp, upn[0], upn[1], upn[2]);
+        if (locFov >= 0)   glUniform1f(locFov, fovRadians);
+        if (locAspect >= 0) glUniform1f(locAspect, aspect);
 
         glBindVertexArray(m_QuadVAO);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        
         ++m_LastDrawCallCount;
         m_LastVertexCount += 3;
+        
+        // Restore depth state for the rest of your rendering
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_LESS);
         glBindVertexArray(0);
-
-        // Restore state for the cube
-        glDisable(GL_BLEND);
-        glEnable(GL_DEPTH_TEST); 
     }
 
     // Ensure nearby chunks are requested and uploaded
